@@ -157,7 +157,12 @@ export const AssinaturaService = {
         return assinatura
     },
 
+    // A conta do dono do sistema (super_admin) não tem assinatura e nunca é bloqueada: seus servidores
+    // são monitorados e seus agentes aceitos normalmente.
     async verificarAcesso(tenantId) {
+        if (await UserModel.exists({ _id: tenantId, role: 'super_admin' })) {
+            return { liberado: true, motivo: null, ate: null }
+        }
         const assinatura = await AssinaturaModel.findOne({ tenantId }).sort({ createdAt: -1 })
         return avaliarAcesso(assinatura)
     },
