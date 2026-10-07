@@ -1,0 +1,25 @@
+{
+  "name": "managesystem-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon index.js",
+    "seed": "node scripts/seedPlanos.js"
+  },
+  "license": "ISC",
+  "description": "API do ManageSystem: monitoramento de servidores, domínios e SSL",
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "argon2": "^0.45.1",
+    "dotenv": "^18.0.6",
+    "fastify": "^5.12.5",
+    "jsonwebtoken": "^9.0.3",
+    "mercadopago": "^3.6.1",
+    "mongoose": "^9.11.0",
+    "stripe": "^23.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

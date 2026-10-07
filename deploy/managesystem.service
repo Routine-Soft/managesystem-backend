@@ -1,0 +1,15 @@
+[Unit]
+Description=ManageSystem backend (Fastify)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/managesystem-backend
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
