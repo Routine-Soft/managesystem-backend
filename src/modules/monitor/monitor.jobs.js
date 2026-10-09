@@ -8,6 +8,9 @@ import { AlertaService } from '../alerta/alerta.service.js'
 import { EstadoService } from './estado.service.js'
 import { verificarUrl } from './checagem.http.js'
 import { verificarSsl } from './checagem.ssl.js'
+import ContratanteModel from '../contratante/contratante.model.js'
+import FaturaModel from '../contratante/fatura.model.js'
+import { FaturaService, urlDoPortal } from '../contratante/fatura.service.js'
 
 // Rotinas automáticas do monitor. Rodam dentro da própria API (uma instância só).
 
@@ -125,7 +128,7 @@ async function verificarSslDoServidor(servidor) {
     const ssl = await verificarSsl(host)
     servidor.ssl = ssl
 
-    // Validade que avançou é renovação (no Let's Encrypt, feita sozinha pelo certbot).
+    // Validade que avançou é renovação (no Let's Encrypt, feita sozinha pelo certbot ou pelo Caddy).
     if (anterior && ssl.expiraEm && ssl.expiraEm.getTime() - anterior.getTime() > DIA) {
         await EventoModel.create({
             tenantId: servidor.tenantId,
@@ -205,6 +208,61 @@ export async function cicloDeAvisos() {
     }
 }
 
+// ---------- Clientes finais: faturas e lembretes no Telegram deles ----------
+
+// Marca no próprio documento qual estágio já foi avisado (não repete o mesmo aviso).
+async function lembrar(doc, chave, marca, enviar) {
+    if (doc.alertas?.[chave] === marca) return false
+    await enviar()
+    doc.alertas = { ...doc.alertas, [chave]: marca }
+    doc.markModified('alertas')
+    return true
+}
+
+export async function cicloDeFaturas() {
+    const liberado = filtroDeAcesso()
+    await FaturaService.gerarFaturasDoPeriodo()
+
+    // Fatura em aberto: lembrete 3 dias antes e no dia.
+    const abertas = await FaturaModel.find({ status: 'aberta', vencimento: { $lte: new Date(Date.now() + 4 * DIA) } })
+    for (const fatura of abertas) {
+        if (!(await liberado(fatura.tenantId))) continue
+        const dias = diasAte(fatura.vencimento)
+        if (dias < 0) continue
+        const estagio = dias <= 0 ? 0 : dias <= 3 ? 3 : null
+        if (estagio === null) continue
+        const contratante = await ContratanteModel.findById(fatura.contratanteId)
+        if (!contratante?.telegram?.chatId) continue
+        const enviou = await lembrar(fatura, 'vence', String(estagio), () => AlertaService.notificarContratante(contratante, 'faturaVence', {
+            total: fatura.total, moeda: fatura.moeda, restantes: dias, link: urlDoPortal(''),
+        }))
+        if (enviou) await fatura.save()
+    }
+
+    // Domínio e e-mails dos sites ligados ao cliente, com o link do provedor para renovar.
+    const comTelegram = await ContratanteModel.find({ 'telegram.chatId': { $ne: null }, 'sites.0': { $exists: true } })
+    for (const contratante of comTelegram) {
+        if (!(await liberado(contratante.tenantId))) continue
+        let mudou = false
+        for (const site of await SiteModel.find({ tenantId: contratante.tenantId, _id: { $in: contratante.sites } })) {
+            const avisos = [
+                ['dominio', 'dominioCliente', site.manual?.expiraEm ?? site.registro?.expiraEm, site.manual?.linkRenovacao, site.manual?.renovacaoAutomatica ? 7 : 30],
+                ['emails', 'emailsCliente', site.emails?.vencimento, site.emails?.linkRenovacao, 15],
+            ]
+            for (const [chave, tipo, expiraEm, link, limite] of avisos) {
+                if (!expiraEm) continue
+                const dias = diasAte(expiraEm)
+                const estagio = estagioDoAviso(dias, limite)
+                if (estagio === null) continue
+                mudou = (await lembrar(contratante, `${chave}:${site._id}`, `${new Date(expiraEm).toISOString()}|${estagio}`, () => AlertaService.notificarContratante(contratante, tipo, {
+                    nome: site.dominio, restantes: dias, link,
+                }))) || mudou
+            }
+        }
+        if (mudou) await contratante.save()
+    }
+}
+
 // ---------- Agenda ----------
 
 function repetir(nome, intervaloMs, primeiraEmMs, tarefa) {
@@ -236,6 +294,8 @@ export function iniciarMonitor() {
     repetir('ssl', 6 * HORA, 30 * 1000, cicloDeSsl)
     repetir('sites', 12 * HORA, 60 * 1000, cicloDeSites)
     repetir('avisos', HORA, 2 * MINUTO, cicloDeAvisos)
+    repetir('faturas', HORA, 3 * MINUTO, cicloDeFaturas)
+    repetir('pagamentos', 10 * MINUTO, 4 * MINUTO, () => FaturaService.sincronizarAbertas())
     console.log('Monitor iniciado')
 }
 

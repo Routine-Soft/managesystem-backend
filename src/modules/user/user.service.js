@@ -123,9 +123,10 @@ export const UserService = {
             throw new AppError('Usuário não encontrado', 404)
         }
 
-        // O nome da empresa é o mesmo para toda a equipe.
-        if (dto.nomeEmpresa) {
-            await UserModel.updateMany({ tenantId }, { $set: { nomeEmpresa: dto.nomeEmpresa } })
+        // O nome da empresa e o país são os mesmos para toda a equipe.
+        const daConta = Object.fromEntries(Object.entries({ nomeEmpresa: dto.nomeEmpresa, pais: dto.pais }).filter(([, v]) => v))
+        if (Object.keys(daConta).length) {
+            await UserModel.updateMany({ tenantId }, { $set: daConta })
         }
         return user
     },
@@ -161,12 +162,13 @@ export const UserService = {
         validarEmail(dto.email)
         validarSenha(dto.password)
 
-        const dono = await UserModel.findById(tenantId, 'nomeEmpresa')
+        const dono = await UserModel.findById(tenantId, 'nomeEmpresa pais')
         try {
             return await UserModel.create({
                 ...dto,
                 tenantId,
                 nomeEmpresa: dono?.nomeEmpresa ?? '',
+                pais: dono?.pais ?? 'BR',
                 password: await argon2.hash(dto.password),
             })
         } catch (error) {

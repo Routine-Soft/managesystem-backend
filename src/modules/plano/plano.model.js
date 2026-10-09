@@ -5,9 +5,8 @@ const planoSchema = new mongoose.Schema({
     descricao: { type: String, default: '' },
     tipo: { type: String, enum: ['gratis', 'pago'], required: true },
 
-    // Preço mensal em reais (Pix e exibição em português) e em dólares (exibição em inglês).
-    // A cobrança no cartão usa o preço cadastrado no Stripe (stripePriceId), que pode ter várias moedas.
-    precoBRL: { type: Number, default: 0 },
+    // Preço mensal sempre em dólar. Quem é do Brasil paga em Pix o valor convertido pela cotação do dia;
+    // quem é de fora paga no cartão pelo preço cadastrado no Stripe (stripePriceId, em dólar).
     precoUSD: { type: Number, default: 0 },
     stripePriceId: { type: String, default: null },
 

@@ -18,6 +18,9 @@ const pagamentoSchema = new mongoose.Schema({
 
     valor: { type: Number, required: true },
     moeda: { type: String, default: 'BRL' },
+    // Pix de plano em dólar: preço original e a cotação usada na conversão.
+    valorUSD: { type: Number, default: null },
+    cotacao: { type: Number, default: null },
     qrCode: { type: String, default: null },
     qrCodeBase64: { type: String, default: null },
     expiraEm: { type: Date, default: null },

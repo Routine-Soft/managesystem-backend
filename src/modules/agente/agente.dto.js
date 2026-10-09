@@ -105,6 +105,7 @@ export function inventarioDTO(body) {
             instalado: !!b.certbot?.instalado,
             renovacaoAutomatica: !!b.certbot?.renovacaoAutomatica,
             certificados: lista(b.certbot?.certificados, 50).map((c) => texto(c, 120)).filter(Boolean),
+            ferramenta: ['certbot', 'caddy'].includes(b.certbot?.ferramenta) ? b.certbot.ferramenta : 'certbot',
         },
     }
 }

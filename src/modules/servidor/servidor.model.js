@@ -30,6 +30,13 @@ const servidorSchema = new mongoose.Schema({
     url: { type: String, default: null },
     limiteLentidaoMs: { type: Number, default: 3000 },
 
+    // Quanto o servidor custa por mês no provedor (AWS, Hostinger...). Preenchido à mão.
+    custo: {
+        valor: { type: Number, default: null },
+        moeda: { type: String, default: 'USD' },
+        provedor: { type: String, default: null },
+    },
+
     // Só o hash do token do agente fica no banco; o token aparece uma única vez, no comando de instalação.
     tokenHash: { type: String, default: null, index: true },
 
@@ -95,6 +102,8 @@ const servidorSchema = new mongoose.Schema({
         instalado: Boolean,
         renovacaoAutomatica: Boolean,
         certificados: [String],
+        // Quem renova o HTTPS: certbot (Nginx) ou o próprio Caddy.
+        ferramenta: { type: String, default: 'certbot' },
     },
 
     // Últimas linhas de erro (Nginx e serviços do systemd).

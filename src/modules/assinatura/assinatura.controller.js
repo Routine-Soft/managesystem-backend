@@ -5,6 +5,8 @@ import { getStripe } from '../../config/stripe.js'
 import { stripeConfigurado } from '../../config/stripe.js'
 import { mercadoPagoConfigurado } from '../../config/mercadopago.js'
 import UserModel from '../user/user.model.js'
+import { ehBrasil } from '../shared/utils/pais.js'
+import { cotacaoDoDolar } from '../shared/utils/cambio.js'
 
 // Confere a assinatura que o Mercado Pago envia no cabeçalho x-signature (HMAC-SHA256 do "manifest").
 function assinaturaMercadoPagoValida(req, dataId) {
@@ -26,11 +28,19 @@ function assinaturaMercadoPagoValida(req, dataId) {
 }
 
 // A assinatura sempre vai com o estado de acesso e as formas de pagamento disponíveis.
-function comAcesso(assinatura) {
+// Conta do Brasil vê só o Pix (Mercado Pago, com a cotação do dólar); de fora, só o cartão (Stripe).
+async function comAcesso(assinatura) {
+    const dono = await UserModel.findById(assinatura.tenantId, 'pais')
+    const brasil = ehBrasil(dono?.pais ?? 'BR')
     return {
         ...assinatura.toJSON(),
         acesso: avaliarAcesso(assinatura),
-        formasDePagamento: { cartao: stripeConfigurado(), pix: mercadoPagoConfigurado() },
+        formasDePagamento: {
+            pais: dono?.pais ?? 'BR',
+            cartao: !brasil && stripeConfigurado(),
+            pix: brasil && mercadoPagoConfigurado(),
+            cotacaoUSD: brasil ? await cotacaoDoDolar().catch(() => null) : null,
+        },
     }
 }
 
@@ -44,7 +54,7 @@ export const AssinaturaController = {
         const { tenantId } = req.user
         await AssinaturaService.confirmarPixPendente(tenantId).catch(() => null)
         const assinatura = await AssinaturaService.obterAssinaturaAtual(tenantId)
-        return reply.send({ success: true, data: comAcesso(assinatura) })
+        return reply.send({ success: true, data: await comAcesso(assinatura) })
     },
 
     async pagamentos(req, reply) {
@@ -66,7 +76,7 @@ export const AssinaturaController = {
 
     async sincronizarStripe(req, reply) {
         const assinatura = await AssinaturaService.sincronizarStripe(req.user.tenantId, req.body?.sessionId)
-        return reply.send({ success: true, data: comAcesso(assinatura), message: 'Assinatura atualizada' })
+        return reply.send({ success: true, data: await comAcesso(assinatura), message: 'Assinatura atualizada' })
     },
 
     async pix(req, reply) {
@@ -77,7 +87,7 @@ export const AssinaturaController = {
 
     async sincronizarPix(req, reply) {
         const { pagamento, assinatura } = await AssinaturaService.sincronizarPix(req.user.tenantId)
-        return reply.send({ success: true, data: { pagamento, assinatura: comAcesso(assinatura) } })
+        return reply.send({ success: true, data: { pagamento, assinatura: await comAcesso(assinatura) } })
     },
 
     // Quem chama é o Stripe. O corpo chega cru (Buffer) para a assinatura do webhook poder ser conferida.

@@ -21,6 +21,9 @@ const userSchema = new mongoose.Schema({
         default: 'admin',
     },
 
+    // País da conta (ISO, ex.: BR, US). Decide o meio de pagamento: Brasil = Mercado Pago, outros = Stripe.
+    pais: { type: String, default: 'BR' },
+
     // Idioma das telas, das mensagens da API e dos alertas do Telegram.
     idioma: { type: String, enum: ['pt', 'en'], default: 'pt' },
 

@@ -12,6 +12,9 @@ import { siteRoutes } from './src/modules/site/site.routes.js'
 import { alertaRoutes } from './src/modules/alerta/alerta.routes.js'
 import { agenteRoutes } from './src/modules/agente/agente.routes.js'
 import { clienteRoutes } from './src/modules/cliente/cliente.routes.js'
+import { recebimentoRoutes } from './src/modules/recebimento/recebimento.routes.js'
+import { contratanteRoutes } from './src/modules/contratante/contratante.routes.js'
+import { portalRoutes } from './src/modules/portal/portal.routes.js'
 import { iniciarMonitor } from './src/modules/monitor/monitor.jobs.js'
 import { iniciarBotTelegram } from './src/modules/alerta/telegram.bot.js'
 
@@ -59,6 +62,9 @@ await fastify.register(siteRoutes, { prefix: '/api' })
 await fastify.register(alertaRoutes, { prefix: '/api' })
 await fastify.register(agenteRoutes, { prefix: '/api' })
 await fastify.register(clienteRoutes, { prefix: '/api' })
+await fastify.register(recebimentoRoutes, { prefix: '/api' })
+await fastify.register(contratanteRoutes, { prefix: '/api' })
+await fastify.register(portalRoutes, { prefix: '/api' })
 
 const start = async () => {
     try {

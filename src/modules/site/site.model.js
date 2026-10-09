@@ -32,6 +32,8 @@ const siteSchema = new mongoose.Schema({
         moeda: { type: String, default: 'BRL' },
         renovacaoAutomatica: { type: Boolean, default: false },
         observacao: { type: String, default: null },
+        // Página do provedor onde o dono do site renova (vai no lembrete para o cliente final).
+        linkRenovacao: { type: String, default: null },
     },
 
     ssl: {
@@ -51,6 +53,7 @@ const siteSchema = new mongoose.Schema({
         valor: { type: Number, default: null },
         moeda: { type: String, default: 'BRL' },
         periodicidade: { type: String, enum: ['mensal', 'anual'], default: 'anual' },
+        linkRenovacao: { type: String, default: null },
         caixas: [caixaSchema],
     },
 

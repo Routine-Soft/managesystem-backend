@@ -10,7 +10,7 @@ import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const VERSAO = '1.1.0'
+const VERSAO = '1.2.0'
 
 const PASTA_DADOS = process.env.MSA_DADOS || '/var/lib/managesystem-agent'
 const ARQUIVO_CONFIG = process.env.MSA_CONFIG || '/etc/managesystem-agent/config.json'
@@ -277,6 +277,7 @@ async function versoesDosProgramas() {
         ['Python', 'python3', ['--version']],
         ['Git', 'git', ['--version']],
         ['Certbot', 'certbot', ['--version']],
+        ['Caddy', 'caddy', ['version']],
         ['OpenSSL', 'openssl', ['version']],
     ]
     const versoes = []
@@ -384,7 +385,28 @@ async function certbot() {
     } catch {
         // sem certificados
     }
-    return { instalado, renovacaoAutomatica, certificados }
+    if (instalado) return { instalado, renovacaoAutomatica, certificados, ferramenta: 'certbot' }
+    return await caddy()
+}
+
+// O Caddy gera e renova o HTTPS sozinho enquanto o serviço está ligado (sem certbot).
+async function caddy() {
+    const { saida } = await executar('systemctl', ['is-active', 'caddy'], { tempo: 8000 })
+    const ativo = saida.trim() === 'active'
+    if (!ativo && !fs.existsSync('/etc/caddy/Caddyfile')) return { instalado: false, renovacaoAutomatica: false, certificados: [] }
+
+    // Certificados ficam em .../caddy/certificates/<emissor>/<domínio>/
+    const certificados = new Set()
+    for (const base of ['/var/lib/caddy/.local/share/caddy/certificates', '/root/.local/share/caddy/certificates']) {
+        try {
+            for (const emissor of fs.readdirSync(base)) {
+                for (const dominio of fs.readdirSync(path.join(base, emissor))) certificados.add(dominio)
+            }
+        } catch {
+            // pasta não existe
+        }
+    }
+    return { instalado: true, renovacaoAutomatica: ativo, certificados: [...certificados], ferramenta: 'caddy' }
 }
 
 // ---------------------------------------------------------------- projetos Node (package.json)

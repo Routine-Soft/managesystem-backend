@@ -4,14 +4,13 @@ function numeroOuNulo(valor) {
     return Number.isFinite(n) && n >= 0 ? n : null
 }
 
-const CAMPOS = ['nome', 'descricao', 'tipo', 'precoBRL', 'precoUSD', 'stripePriceId', 'duracaoDiasTrial', 'limiteServidores', 'limiteSites', 'ativo']
+const CAMPOS = ['nome', 'descricao', 'tipo', 'precoUSD', 'stripePriceId', 'duracaoDiasTrial', 'limiteServidores', 'limiteSites', 'ativo']
 
 export function planoDTO(body) {
     const dto = Object.fromEntries(Object.entries(body ?? {}).filter(([chave]) => CAMPOS.includes(chave)))
     if ('nome' in dto) dto.nome = String(dto.nome ?? '').trim()
     if ('descricao' in dto) dto.descricao = String(dto.descricao ?? '').trim()
     if ('tipo' in dto) dto.tipo = dto.tipo === 'gratis' ? 'gratis' : 'pago'
-    if ('precoBRL' in dto) dto.precoBRL = numeroOuNulo(dto.precoBRL) ?? 0
     if ('precoUSD' in dto) dto.precoUSD = numeroOuNulo(dto.precoUSD) ?? 0
     if ('stripePriceId' in dto) dto.stripePriceId = String(dto.stripePriceId ?? '').trim() || null
     if ('duracaoDiasTrial' in dto) dto.duracaoDiasTrial = numeroOuNulo(dto.duracaoDiasTrial)

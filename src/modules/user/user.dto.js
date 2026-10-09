@@ -1,3 +1,5 @@
+import { paisValido } from '../shared/utils/pais.js'
+
 export function normalizarEmail(email) {
     return String(email ?? '').replace(/\s+/g, '').toLowerCase()
 }
@@ -14,6 +16,7 @@ export function registroDTO(body) {
         telefone: texto(body.telefone) || null,
         nomeEmpresa: texto(body.nomeEmpresa),
         idioma: body.idioma === 'en' ? 'en' : 'pt',
+        pais: paisValido(body.pais) ?? 'BR',
     }
 }
 
@@ -45,6 +48,9 @@ export function atualizarMeDTO(body, role) {
     if ('idioma' in body) dto.idioma = body.idioma === 'en' ? 'en' : 'pt'
     if ('nomeEmpresa' in body && ['admin', 'super_admin'].includes(role) && texto(body.nomeEmpresa)) {
         dto.nomeEmpresa = texto(body.nomeEmpresa)
+    }
+    if ('pais' in body && ['admin', 'super_admin'].includes(role) && paisValido(body.pais)) {
+        dto.pais = paisValido(body.pais)
     }
     return dto
 }

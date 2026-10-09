@@ -28,6 +28,18 @@ function texto(valor) {
     return String(valor ?? '').trim() || null
 }
 
+// Link do provedor para renovar: só http(s).
+function link(valor) {
+    const t = String(valor ?? '').trim()
+    if (!t) return null
+    try {
+        const url = new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`)
+        return ['http:', 'https:'].includes(url.protocol) ? url.toString().slice(0, 500) : null
+    } catch {
+        throw new AppError('Link de renovação inválido', 400)
+    }
+}
+
 function moeda(valor) {
     return ['BRL', 'USD', 'EUR'].includes(valor) ? valor : 'BRL'
 }
@@ -49,6 +61,7 @@ export function siteDTO(body) {
             moeda: moeda(m.moeda),
             renovacaoAutomatica: !!m.renovacaoAutomatica,
             observacao: texto(m.observacao),
+            linkRenovacao: link(m.linkRenovacao),
         }
     }
 
@@ -61,6 +74,7 @@ export function siteDTO(body) {
             valor: numero(e.valor),
             moeda: moeda(e.moeda),
             periodicidade: e.periodicidade === 'mensal' ? 'mensal' : 'anual',
+            linkRenovacao: link(e.linkRenovacao),
             caixas: caixas
                 .map((c) => ({
                     endereco: String(c?.endereco ?? '').replace(/\s+/g, '').toLowerCase(),

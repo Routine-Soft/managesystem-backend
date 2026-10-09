@@ -16,6 +16,10 @@ export async function authenticate(req) {
     } catch {
         throw new AppError('Token inválido', 401)
     }
+    // Token de renovação não serve como token de acesso.
+    if (req.user.tipo) {
+        throw new AppError('Token inválido', 401)
+    }
 }
 
 // O papel é conferido no banco (e não só no token), para que uma troca de papel valha na hora.

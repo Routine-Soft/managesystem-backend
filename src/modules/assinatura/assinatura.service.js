@@ -10,6 +10,8 @@ import { aplicarStatusStripe, precoDaAssinatura } from './assinatura.stripe.js'
 import { getStripe, stripeConfigurado } from '../../config/stripe.js'
 import { MP_API, mercadoPagoConfigurado } from '../../config/mercadopago.js'
 import AppError from '../../errors/AppError.js'
+import { ehBrasil } from '../shared/utils/pais.js'
+import { cotacaoDoDolar, emReais } from '../shared/utils/cambio.js'
 
 // Pix avulso: quanto tempo o QR Code vale e quantos dias de acesso cada pagamento libera.
 export const PIX_VALIDADE_MINUTOS = 60
@@ -92,6 +94,8 @@ function pagamentoParaDTO(pagamento) {
         status: pagamento.status,
         valor: pagamento.valor,
         moeda: pagamento.moeda,
+        valorUSD: pagamento.valorUSD,
+        cotacao: pagamento.cotacao,
         qrCode: pagamento.qrCode,
         qrCodeBase64: pagamento.qrCodeBase64,
         expiraEm: pagamento.expiraEm,
@@ -193,6 +197,10 @@ export const AssinaturaService = {
         const admin = await UserModel.findById(tenantId)
         if (!admin) {
             throw new AppError('Conta não encontrada', 404)
+        }
+
+        if (ehBrasil(admin.pais)) {
+            throw new AppError('No Brasil o pagamento é pelo Mercado Pago (Pix).', 400)
         }
 
         const assinatura = await this.obterAssinaturaAtual(tenantId)
@@ -383,6 +391,10 @@ export const AssinaturaService = {
             throw new AppError('Conta não encontrada', 404)
         }
 
+        if (!ehBrasil(admin.pais)) {
+            throw new AppError('O Pix é só para contas do Brasil. Pague com cartão.', 400)
+        }
+
         const pagador = interpretarDocumento(documento)
         if (!pagador) {
             throw new AppError('Informe um CPF ou CNPJ válido de quem vai pagar o Pix', 400)
@@ -396,9 +408,11 @@ export const AssinaturaService = {
         }
 
         const plano = await this.escolherPlanoPago(planoId)
-        if (!plano.precoBRL) {
-            throw new AppError('Este plano não tem preço em reais para pagamento por Pix.', 400)
+        if (!plano.precoUSD) {
+            throw new AppError('Este plano ainda não tem preço definido.', 400)
         }
+        const cotacao = await cotacaoDoDolar()
+        const valor = emReais(plano.precoUSD, cotacao)
         if (assinatura.status === 'ativa' && String(assinatura.planoId?._id ?? assinatura.planoId) !== String(plano._id)) {
             throw new AppError('Para trocar de plano, aguarde o fim do período já pago. Por enquanto você pode renovar o plano atual.', 409)
         }
@@ -413,7 +427,7 @@ export const AssinaturaService = {
 
         const expiraEm = new Date(Date.now() + PIX_VALIDADE_MINUTOS * 60 * 1000)
         const corpo = {
-            transaction_amount: plano.precoBRL,
+            transaction_amount: valor,
             description: `ManageSystem - ${plano.nome} (${PIX_DIAS_DE_ACESSO} dias)`,
             payment_method_id: 'pix',
             date_of_expiration: expiracaoComFuso(expiraEm),
@@ -447,8 +461,10 @@ export const AssinaturaService = {
             planoId: plano._id,
             metodo: 'pix',
             gatewayId: String(payment.id),
-            valor: plano.precoBRL,
+            valor,
             moeda: 'BRL',
+            valorUSD: plano.precoUSD,
+            cotacao,
             qrCode: dados.qr_code,
             qrCodeBase64: dados.qr_code_base64 ?? null,
             expiraEm: payment.date_of_expiration ? new Date(payment.date_of_expiration) : expiraEm,

@@ -22,6 +22,7 @@ const alertaConfigSchema = new mongoose.Schema({
         dominio: { type: Boolean, default: true },
         emails: { type: Boolean, default: true },
         seguranca: { type: Boolean, default: true },
+        faturas: { type: Boolean, default: true },
     },
     limites: {
         ram: { type: Number, default: 90 },

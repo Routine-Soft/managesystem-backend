@@ -8,7 +8,7 @@ export const PlanoService = {
     // Clientes veem só os planos ativos; o super_admin vê todos.
     async listar(role) {
         const filtro = role === 'super_admin' ? {} : { ativo: true }
-        return await PlanoModel.find(filtro).sort({ tipo: 1, precoBRL: 1 })
+        return await PlanoModel.find(filtro).sort({ tipo: 1, precoUSD: 1 })
     },
 
     async criar(body) {

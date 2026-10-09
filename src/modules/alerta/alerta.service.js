@@ -1,12 +1,13 @@
 import crypto from 'node:crypto'
 import AlertaConfigModel from './alerta.model.js'
 import UserModel from '../user/user.model.js'
+import ContratanteModel from '../contratante/contratante.model.js'
 import { telegramConfigurado, usuarioDoBot, enviarMensagem } from './telegram.js'
 import { textoDoAlerta } from './alerta.textos.js'
 import AppError from '../../errors/AppError.js'
 
 const VALIDADE_DO_CODIGO_MS = 15 * 60 * 1000
-const TIPOS = ['queda', 'lentidao', 'agente', 'recursos', 'ssl', 'dominio', 'emails', 'seguranca']
+const TIPOS = ['queda', 'lentidao', 'agente', 'recursos', 'ssl', 'dominio', 'emails', 'seguranca', 'faturas']
 
 // Qual chave de "ativos" liga/desliga cada tipo de mensagem.
 const GRUPO_DO_TIPO = {
@@ -15,6 +16,7 @@ const GRUPO_DO_TIPO = {
     agente: 'agente', agenteVoltou: 'agente',
     ram: 'recursos', disco: 'recursos',
     ssl: 'ssl', dominio: 'dominio', emails: 'emails', seguranca: 'seguranca',
+    faturaPaga: 'faturas',
 }
 
 function limite(valor, min, max, padrao) {
@@ -104,6 +106,25 @@ export const AlertaService = {
             return
         }
 
+        // Código do cliente final (portal) começa com "c_".
+        if (codigo.startsWith('c_')) {
+            const contratante = await ContratanteModel.findOne({ codigoVinculo: codigo, codigoExpira: { $gt: new Date() } })
+            if (!contratante) {
+                await enviarMensagem(chat.id, textoDoAlerta('pt', 'codigoInvalido')).catch(() => null)
+                return
+            }
+            contratante.telegram = {
+                chatId: String(chat.id),
+                nome: chat.title || [chat.first_name, chat.last_name].filter(Boolean).join(' ') || chat.username || null,
+                conectadoEm: new Date(),
+            }
+            contratante.codigoVinculo = null
+            contratante.codigoExpira = null
+            await contratante.save()
+            await enviarMensagem(chat.id, textoDoAlerta(contratante.idioma, 'conectadoCliente', { nome: contratante.nome })).catch(() => null)
+            return
+        }
+
         const config = await AlertaConfigModel.findOne({ codigoVinculo: codigo, codigoExpira: { $gt: new Date() } })
         if (!config) {
             await enviarMensagem(chat.id, textoDoAlerta('pt', 'codigoInvalido')).catch(() => null)
@@ -133,6 +154,18 @@ export const AlertaService = {
             return true
         } catch (error) {
             console.error(`Alerta do Telegram não enviado (${tipo}):`, error.message)
+            return false
+        }
+    },
+
+    // Lembrete para o cliente final (fatura, domínio, e-mails), no Telegram dele.
+    async notificarContratante(contratante, tipo, dados) {
+        if (!telegramConfigurado() || !contratante?.telegram?.chatId) return false
+        try {
+            await enviarMensagem(contratante.telegram.chatId, textoDoAlerta(contratante.idioma, tipo, dados))
+            return true
+        } catch (error) {
+            console.error(`Alerta do Telegram (cliente) não enviado (${tipo}):`, error.message)
             return false
         }
     },
