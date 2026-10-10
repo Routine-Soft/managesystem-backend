@@ -42,32 +42,32 @@ async function emitirSessao(user) {
     return { accessToken, refreshToken, user: user.toJSON() }
 }
 
+// Cria a conta (o dono é o próprio tenant) com o período de teste grátis. Usado no cadastro público e pelo super_admin.
+export async function criarConta(body) {
+    const dto = registroDTO(body ?? {})
+    if (!dto.nomeCompleto || !dto.nomeEmpresa) {
+        throw new AppError('Informe seu nome e o nome da empresa', 400)
+    }
+    validarEmail(dto.email)
+    validarSenha(dto.password)
+
+    const newId = new mongoose.Types.ObjectId()
+    let user
+    try {
+        user = await UserModel.create({ ...dto, _id: newId, tenantId: newId, role: 'admin', password: await argon2.hash(dto.password) })
+    } catch (error) {
+        throw erroDeEmailDuplicado(error)
+    }
+    await AssinaturaService.criarAssinaturaTrial(newId)
+    return user
+}
+
+export { validarEmail, validarSenha, erroDeEmailDuplicado }
+
 export const UserService = {
-    // Cadastro público: cria a conta (o dono é o próprio tenant) e o período de teste grátis.
+    // Cadastro público: cria a conta e já entra.
     async registrar(body) {
-        const dto = registroDTO(body ?? {})
-        if (!dto.nomeCompleto || !dto.nomeEmpresa) {
-            throw new AppError('Informe seu nome e o nome da empresa', 400)
-        }
-        validarEmail(dto.email)
-        validarSenha(dto.password)
-
-        const newId = new mongoose.Types.ObjectId()
-        let user
-        try {
-            user = await UserModel.create({
-                ...dto,
-                _id: newId,
-                tenantId: newId,
-                role: 'admin',
-                password: await argon2.hash(dto.password),
-            })
-        } catch (error) {
-            throw erroDeEmailDuplicado(error)
-        }
-
-        await AssinaturaService.criarAssinaturaTrial(newId)
-        return await emitirSessao(user)
+        return await emitirSessao(await criarConta(body))
     },
 
     async login(body) {

@@ -143,4 +143,8 @@ export const MENSAGENS_EN = {
     'O e-mail do pagador não corresponde a uma conta do Mercado Pago.': 'The payer e-mail does not match a Mercado Pago account.',
     'URL de retorno do Mercado Pago inválida. Confira a variável APP_URL no .env.': 'Invalid Mercado Pago return URL. Check APP_URL in .env.',
     'Assinatura não encontrada': 'Subscription not found',
+    'Assinante cadastrado': 'Subscriber added',
+    'Assinante atualizado': 'Subscriber updated',
+    'Assinante excluído': 'Subscriber deleted',
+    'Senha redefinida': 'Password reset',
 }

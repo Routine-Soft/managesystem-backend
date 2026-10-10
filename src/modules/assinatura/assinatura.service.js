@@ -475,6 +475,18 @@ export const AssinaturaService = {
         }
     },
 
+    // Conta sendo excluída pelo super_admin: para de cobrar no cartão (Mercado Pago e Stripe) antes de apagar.
+    async encerrarCobrancasDoTenant(tenantId) {
+        for (const assinatura of await AssinaturaModel.find({ tenantId })) {
+            for (const id of [assinatura.mercadoPagoPreapprovalId, assinatura.cartaoAgendadoPreapprovalId].filter(Boolean)) {
+                if (mercadoPagoConfigurado()) await cancelarPreapproval(id)
+            }
+            if (assinatura.stripeSubscriptionId && stripeConfigurado()) {
+                await getStripe().subscriptions.cancel(assinatura.stripeSubscriptionId).catch(() => null)
+            }
+        }
+    },
+
     // ===================== Mercado Pago: cartão com renovação automática (só Brasil) =====================
 
     async iniciarCartaoMercadoPago(tenantId, planoId) {
