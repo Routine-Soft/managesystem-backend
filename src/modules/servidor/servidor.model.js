@@ -106,8 +106,26 @@ const servidorSchema = new mongoose.Schema({
         ferramenta: { type: String, default: 'certbot' },
     },
 
-    // Últimas linhas de erro (Nginx e serviços do systemd).
+    // Últimas linhas de erro (Nginx, serviços do systemd e containers).
     logs: [{ _id: false, em: Date, origem: String, linha: String }],
+
+    // Containers Docker da máquina (última leitura do agente). Vazio quando não há Docker.
+    containers: [{
+        _id: false,
+        nome: String,
+        projeto: String,
+        imagem: String,
+        estado: String,
+        status: String,
+        saude: String,
+        cpu: Number,
+        ramUsada: Number,
+        ramLimite: Number,
+        reinicios: Number,
+        oom: Boolean,
+        iniciadoEm: Date,
+    }],
+    containersEm: Date,
 
     ssl: {
         valido: Boolean,

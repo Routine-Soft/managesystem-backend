@@ -44,6 +44,25 @@ export function coletaDTO(body) {
         logs: lista(b.logs, 50)
             .map((l) => ({ em: data(l?.em) ?? new Date(), origem: texto(l?.origem, 60), linha: texto(l?.linha, 500) }))
             .filter((l) => l.linha),
+        // Só quando a máquina tem Docker; senão vem vazio.
+        containers: Array.isArray(b.containers)
+            ? lista(b.containers, 60)
+                .map((c) => ({
+                    nome: texto(c?.nome, 80),
+                    projeto: texto(c?.projeto, 80),
+                    imagem: texto(c?.imagem, 120),
+                    estado: texto(c?.estado, 20),
+                    status: texto(c?.status, 80),
+                    saude: texto(c?.saude, 20),
+                    cpu: numero(c?.cpu, { max: 100000 }),
+                    ramUsada: numero(c?.ramUsada),
+                    ramLimite: numero(c?.ramLimite),
+                    reinicios: numero(c?.reinicios, { max: 1000000 }) ?? 0,
+                    oom: !!c?.oom,
+                    iniciadoEm: data(c?.iniciadoEm),
+                }))
+                .filter((c) => c.nome)
+            : null,
     }
 }
 

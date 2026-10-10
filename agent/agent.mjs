@@ -10,7 +10,7 @@ import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const VERSAO = '1.2.0'
+const VERSAO = '1.3.0'
 
 const PASTA_DADOS = process.env.MSA_DADOS || '/var/lib/managesystem-agent'
 const ARQUIVO_CONFIG = process.env.MSA_CONFIG || '/etc/managesystem-agent/config.json'
@@ -234,12 +234,128 @@ async function errosDoJournal() {
     return linhas
 }
 
+// ---------------------------------------------------------------- containers (Docker)
+
+// "66.07MiB" → bytes. O docker stats mostra em unidades de 1024 (KiB, MiB, GiB) ou de 1000 (kB, MB, GB).
+function bytesDoTexto(texto) {
+    const m = String(texto ?? '').trim().match(/^([\d.]+)\s*([KMGT]?i?B)$/i)
+    if (!m) return null
+    const unidade = m[2].toUpperCase()
+    const base = unidade.includes('I') ? 1024 : 1000
+    const expoente = { B: 0, K: 1, M: 2, G: 3, T: 4 }[unidade[0]] ?? 0
+    return Math.round(Number(m[1]) * base ** expoente)
+}
+
+// Linhas que parecem erro na saída de um container (texto comum ou JSON do pino: level 50 = error, 60 = fatal).
+const PARECE_ERRO = /\b(error|erro|exception|fatal|unhandled|uncaught|ECONNREFUSED|ETIMEDOUT|panic)\b/i
+
+// Devolve o texto do erro já legível, ou null se a linha não for erro.
+// JSON (pino/Fastify): só level >= 50, e erro de quem chamou (status < 500, ex.: falta de login) não conta.
+function erroDaLinha(linha) {
+    const inicio = linha.indexOf('{')
+    if (inicio >= 0 && linha.trimEnd().endsWith('}')) {
+        try {
+            const j = JSON.parse(linha.slice(inicio))
+            const status = Number(j.err?.statusCode ?? j.res?.statusCode ?? 0)
+            if (Number(j.level) < 50 || (status && status < 500)) return null
+            const onde = String(j.err?.stack ?? '').split('\n').find((l) => /^\s+at /.test(l))?.trim()
+            return [j.err?.type, j.err?.message ?? j.msg].filter(Boolean).join(': ') + (onde ? ` (${onde})` : '')
+        } catch {
+            // não era JSON: segue como texto
+        }
+    }
+    return PARECE_ERRO.test(linha) ? linha : null
+}
+
+// Cada container: CPU, memória (uso e limite), situação, saúde e quantas vezes reiniciou.
+// Sem Docker na máquina, devolve lista vazia e nada muda.
+async function containers() {
+    const ps = await executar('docker', ['ps', '-a', '--no-trunc', '--format', '{{json .}}'], { tempo: 15000 })
+    if (!ps.ok) return { lista: [], erros: [] }
+    const todos = ps.saida.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    if (!todos.length) return { lista: [], erros: [] }
+
+    const [stats, inspect] = await Promise.all([
+        executar('docker', ['stats', '--no-stream', '--no-trunc', '--format', '{{json .}}'], { tempo: 20000 }),
+        executar('docker', ['inspect', '--format', '{{json .}}', ...todos.map((c) => c.ID)], { tempo: 15000 }),
+    ])
+    const usoPorId = {}
+    for (const l of stats.saida.split('\n').filter(Boolean)) {
+        try {
+            const j = JSON.parse(l)
+            const [usada, limite] = String(j.MemUsage ?? '').split('/')
+            usoPorId[j.ID] = { cpu: parseFloat(j.CPUPerc), ramUsada: bytesDoTexto(usada), ramLimite: bytesDoTexto(limite) }
+        } catch {
+            // ignora a linha
+        }
+    }
+    const detalhesPorId = {}
+    for (const l of inspect.saida.split('\n').filter(Boolean)) {
+        try {
+            const j = JSON.parse(l)
+            detalhesPorId[j.Id] = j
+        } catch {
+            // ignora a linha
+        }
+    }
+
+    const lista = []
+    const erros = []
+    estado.dockerLogs = estado.dockerLogs ?? {}
+    const agora = new Date().toISOString()
+    for (const c of todos) {
+        const d = detalhesPorId[c.ID] ?? {}
+        const nome = String(c.Names ?? '').split(',')[0]
+        // Nome curto: "servidor-rara-1" → "rara" (projeto do compose e número da réplica saem).
+        const projeto = d.Config?.Labels?.['com.docker.compose.project']
+        const servico = d.Config?.Labels?.['com.docker.compose.service']
+        const uso = usoPorId[c.ID] ?? usoPorId[c.ID?.slice(0, 12)] ?? {}
+        lista.push({
+            nome: servico || nome,
+            projeto: projeto || null,
+            imagem: c.Image,
+            estado: c.State,
+            status: c.Status,
+            saude: d.State?.Health?.Status ?? null,
+            cpu: Number.isFinite(uso.cpu) ? uso.cpu : null,
+            ramUsada: uso.ramUsada ?? null,
+            // Sem limite, o docker mostra a RAM da máquina inteira: aí não há limite próprio.
+            ramLimite: d.HostConfig?.Memory ? d.HostConfig.Memory : null,
+            reinicios: d.RestartCount ?? 0,
+            oom: !!d.State?.OOMKilled,
+            iniciadoEm: d.State?.StartedAt ?? null,
+        })
+
+        // Erros novos desde a última leitura (na primeira vez, só os últimos 2 minutos).
+        if (c.State !== 'running') continue
+        const desde = estado.dockerLogs[c.ID] ?? new Date(Date.now() - 2 * MINUTO).toISOString()
+        const saida = await executar('docker', ['logs', '--since', desde, '--timestamps', c.ID], { tempo: 15000 })
+        estado.dockerLogs[c.ID] = agora
+        const texto = `${saida.saida}\n${saida.erro}`
+        const encontrados = []
+        for (const linha of texto.split('\n').filter(Boolean)) {
+            // Com --timestamps, cada linha começa com a data; o resto é o que o sistema escreveu.
+            const [quando, ...resto] = linha.split(' ')
+            const temData = !Number.isNaN(Date.parse(quando))
+            const erro = erroDaLinha(temData ? resto.join(' ') : linha)
+            if (erro) encontrados.push({ em: temData ? new Date(quando).toISOString() : agora, origem: `container ${servico || nome}`, linha: erro.slice(0, 500) })
+        }
+        erros.push(...encontrados.slice(-20))
+    }
+    // Esquece containers que não existem mais.
+    for (const id of Object.keys(estado.dockerLogs)) {
+        if (!todos.some((c) => c.ID === id)) delete estado.dockerLogs[id]
+    }
+    return { lista, erros }
+}
+
 // ---------------------------------------------------------------- coleta de cada minuto
 
 async function coleta() {
     const ram = memoria()
     const acesso = requisicoes()
-    const logs = [...errosDoNginx(), ...acesso.erros, ...(await errosDoJournal())]
+    const docker = await containers()
+    const logs = [...errosDoNginx(), ...acesso.erros, ...(await errosDoJournal()), ...docker.erros]
     const corpo = {
         versao: VERSAO,
         cpu: usoDeCpu(),
@@ -250,6 +366,7 @@ async function coleta() {
         req: acesso.contagem,
         errosTotal: logs.length,
         logs: logs.slice(-50),
+        containers: docker.lista,
     }
     salvarEstado()
     return await enviar('coleta', corpo)

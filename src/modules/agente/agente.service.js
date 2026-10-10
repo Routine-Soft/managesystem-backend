@@ -80,6 +80,11 @@ export const AgenteService = {
         if (c.logs.length) {
             servidor.logs = [...c.logs.reverse(), ...(servidor.logs ?? [])].slice(0, MAX_LOGS)
         }
+        // Agente antigo não manda a lista (null): mantém o que havia.
+        if (c.containers) {
+            servidor.containers = c.containers.sort((a, b) => a.nome.localeCompare(b.nome))
+            servidor.containersEm = agora
+        }
 
         // Sem URL, o sinal do agente é o que diz se o servidor está no ar.
         if (!servidor.url) {

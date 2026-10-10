@@ -228,7 +228,7 @@ export const PortalService = {
     },
 
     // Parte técnica de um servidor (RAM, CPU, disco, tráfego, quedas, dependências, sistema, logs e histórico).
-    // Só servidores liberados para o cliente; o custo do servidor fica só com o programador.
+    // Só servidores liberados para o cliente; o custo do servidor e os containers ficam só com o programador.
     async painelDoServidor(id, servidorId, query) {
         exigirId(servidorId, 'Servidor não encontrado')
         const contratante = await buscar(id)
@@ -237,7 +237,8 @@ export const PortalService = {
             throw new AppError('Servidor não encontrado', 404)
         }
         const painel = await ServidorService.painel(contratante.tenantId, servidorId, { periodo: query?.periodo, tz: query?.tz })
-        const { custo: _custo, ...servidor } = painel.servidor
+        // A máquina pode ter sistemas de outros clientes: os containers ficam só com o programador.
+        const { custo: _custo, containers: _containers, containersEm: _containersEm, ...servidor } = painel.servidor
         return { ...painel, servidor, site: null }
     },
 
