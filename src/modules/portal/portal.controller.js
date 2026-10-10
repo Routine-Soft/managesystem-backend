@@ -42,6 +42,11 @@ export const PortalController = {
         return reply.send({ success: true, data: dados })
     },
 
+    async painelDoServidor(req, reply) {
+        const dados = await PortalService.painelDoServidor(req.contratante.id, req.params.id, req.query)
+        return reply.send({ success: true, data: dados })
+    },
+
     async pagar(req, reply) {
         const result = await PortalService.pagar(req.contratante.id, req.params.id)
         return reply.send({ success: true, data: result, message: 'Abrindo o pagamento' })
