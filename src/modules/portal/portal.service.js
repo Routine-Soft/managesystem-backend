@@ -237,8 +237,14 @@ export const PortalService = {
             throw new AppError('Servidor não encontrado', 404)
         }
         const painel = await ServidorService.painel(contratante.tenantId, servidorId, { periodo: query?.periodo, tz: query?.tz })
-        // A máquina pode ter sistemas de outros clientes: os containers ficam só com o programador.
-        const { custo: _custo, containers: _containers, containersEm: _containersEm, containerAtual: _containerAtual, container: _container, acoes: _acoes, ...servidor } = painel.servidor
+        // A máquina pode ter sistemas de outros clientes: a lista de containers e os botões ficam só com o programador.
+        const { custo: _custo, containers: _containers, containersEm: _containersEm, containerAtual, container: _container, acoes: _acoes, ...servidor } = painel.servidor
+        // O container do próprio sistema pode aparecer (RAM e CPU dele), sem o nome da máquina do programador.
+        if (containerAtual) {
+            const { host: _host, ...semHost } = containerAtual
+            servidor.containerAtual = semHost
+        }
+        if (servidor.agente) servidor.agente = { ...servidor.agente, acoesPermitidas: false }
         return { ...painel, servidor, site: null }
     },
 
