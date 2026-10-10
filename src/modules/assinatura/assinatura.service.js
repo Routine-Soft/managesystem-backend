@@ -86,6 +86,99 @@ function situacaoDoPix(payment) {
     }
 }
 
+// ----- Mercado Pago (cartão com renovação automática = "assinatura"/preapproval) -----
+
+function urlDeRetornoMercadoPago() {
+    return urlDoApp('/assinatura/retorno?mp=1')
+}
+
+function cancelarPreapproval(id) {
+    return chamarMercadoPago('PUT', `/preapproval/${encodeURIComponent(id)}`, { corpo: { status: 'cancelled' } }).catch(() => null)
+}
+
+function traduzirErroMercadoPago(error) {
+    const mensagem = error?.message ?? ''
+    if (mensagem.includes('payer and collector must be real or test users')) {
+        return new AppError('O e-mail do pagador não corresponde a uma conta do Mercado Pago.', 400)
+    }
+    if (mensagem.includes('back_url')) {
+        return new AppError('URL de retorno do Mercado Pago inválida. Confira a variável APP_URL no .env.', 500)
+    }
+    return new AppError('Não foi possível falar com o Mercado Pago: {detalhe}', 502, null, { detalhe: mensagem || 'erro desconhecido' })
+}
+
+// Plano em dólar vira uma assinatura em reais pela cotação do dia em que a pessoa assina.
+async function corpoDoCartao({ assinatura, plano, emailPagador, inicio = null }) {
+    const cotacao = await cotacaoDoDolar()
+    const corpo = {
+        reason: `ManageSystem - ${plano.nome}`,
+        external_reference: assinatura._id.toString(),
+        payer_email: process.env.MP_TEST_PAYER_EMAIL || emailPagador,
+        auto_recurring: {
+            frequency: 1,
+            frequency_type: 'months',
+            transaction_amount: emReais(plano.precoUSD, cotacao),
+            currency_id: 'BRL',
+            ...(inicio ? { start_date: new Date(inicio).toISOString() } : {}),
+        },
+        back_url: urlDeRetornoMercadoPago(),
+    }
+    if (process.env.APP_URL_BACKEND) {
+        corpo.notification_url = `${process.env.APP_URL_BACKEND.replace(/\/+$/, '')}/api/assinaturas/mercadopago/webhook`
+    }
+    return corpo
+}
+
+// Estado da assinatura no cartão do Mercado Pago -> estado interno. "nuncaPagou" (sem proximaCobranca) separa quem só
+// tentou assinar de quem já teve um período pago: só o segundo pode ficar "em atraso" ou "cancelada com acesso".
+function aplicarStatusPreapproval(assinatura, preapproval) {
+    const nuncaPagou = !assinatura.proximaCobranca
+    if (preapproval.status === 'authorized') {
+        assinatura.status = 'ativa'
+        assinatura.cobranca = 'recorrente'
+        assinatura.inadimplenteDesde = null
+        if (preapproval.next_payment_date) assinatura.proximaCobranca = new Date(preapproval.next_payment_date)
+    } else if (preapproval.status === 'cancelled') {
+        if (nuncaPagou && ['pendente', 'inadimplente'].includes(assinatura.status)) {
+            voltarAoGratuito(assinatura)
+            assinatura.mercadoPagoPreapprovalId = null
+        } else {
+            assinatura.status = 'cancelada'
+        }
+    } else if (preapproval.status === 'paused') {
+        // Primeira cobrança que não passou: continua pendente (a pessoa pode tentar de novo ou desistir).
+        if (!(nuncaPagou && assinatura.status === 'pendente')) {
+            if (assinatura.status !== 'inadimplente') assinatura.inadimplenteDesde = new Date()
+            assinatura.status = 'inadimplente'
+        }
+    }
+    return assinatura
+}
+
+// Quem voltou ao teste/expirada por desistir do cartão volta também ao plano gratuito (limites do teste).
+async function planoGratisSeVoltou(assinatura) {
+    if (['trial', 'expirada'].includes(assinatura.status)) {
+        const gratis = await PlanoModel.findOne({ tipo: 'gratis' })
+        if (gratis) assinatura.planoId = gratis._id
+    }
+    return assinatura
+}
+
+// Cartão agendado para depois do período do Pix: autorizado, vira a cobrança da conta; cancelado, é descartado.
+function aplicarCartaoAgendado(assinatura, preapproval) {
+    if (preapproval.status === 'authorized') {
+        assinatura.mercadoPagoPreapprovalId = preapproval.id
+        assinatura.cartaoAgendadoPreapprovalId = null
+        assinatura.status = 'ativa'
+        assinatura.cobranca = 'recorrente'
+        assinatura.inadimplenteDesde = null
+        if (preapproval.next_payment_date) assinatura.proximaCobranca = new Date(preapproval.next_payment_date)
+    } else if (preapproval.status === 'cancelled') {
+        assinatura.cartaoAgendadoPreapprovalId = null
+    }
+    return assinatura
+}
+
 function pagamentoParaDTO(pagamento) {
     if (!pagamento) return null
     return {
@@ -382,6 +475,163 @@ export const AssinaturaService = {
         }
     },
 
+    // ===================== Mercado Pago: cartão com renovação automática (só Brasil) =====================
+
+    async iniciarCartaoMercadoPago(tenantId, planoId) {
+        exigirMercadoPago()
+        const admin = await UserModel.findById(tenantId)
+        if (!admin) {
+            throw new AppError('Conta não encontrada', 404)
+        }
+        if (!ehBrasil(admin.pais)) {
+            throw new AppError('O cartão pelo Mercado Pago é só para contas do Brasil.', 400)
+        }
+
+        const assinatura = await this.obterAssinaturaAtual(tenantId)
+        const plano = await this.escolherPlanoPago(planoId)
+        if (!plano.precoUSD) {
+            throw new AppError('Este plano ainda não tem preço definido.', 400)
+        }
+
+        // Quem está no Pix passa para o cartão sem perder os dias pagos: a 1ª cobrança cai quando o Pix vence.
+        if (assinatura.status === 'ativa' && assinatura.cobranca === 'pix') {
+            if (String(assinatura.planoId?._id ?? assinatura.planoId) !== String(plano._id)) {
+                throw new AppError('Para trocar de plano, aguarde o fim do período pago por Pix ({data}). Agora dá para passar o plano atual para o cartão.', 409, null, { data: assinatura.proximaCobranca })
+            }
+            let criado
+            try {
+                criado = await chamarMercadoPago('POST', '/preapproval', { corpo: await corpoDoCartao({ assinatura, plano, emailPagador: admin.email, inicio: assinatura.proximaCobranca }) })
+            } catch (error) {
+                throw traduzirErroMercadoPago(error)
+            }
+            if (assinatura.cartaoAgendadoPreapprovalId) await cancelarPreapproval(assinatura.cartaoAgendadoPreapprovalId)
+            assinatura.cartaoAgendadoPreapprovalId = criado.id
+            await assinatura.save()
+            return { url: criado.init_point }
+        }
+
+        if (assinatura.status === 'ativa' && ['recorrente', 'stripe'].includes(assinatura.cobranca)) {
+            throw new AppError('Você já tem uma assinatura ativa no cartão. Para trocar de plano, cancele a atual antes.', 409)
+        }
+
+        let criado
+        try {
+            criado = await chamarMercadoPago('POST', '/preapproval', { corpo: await corpoDoCartao({ assinatura, plano, emailPagador: admin.email }) })
+        } catch (error) {
+            throw traduzirErroMercadoPago(error)
+        }
+
+        // Cobrança antiga em atraso (pausada) é encerrada para não ficar viva ao lado da nova.
+        if (assinatura.mercadoPagoPreapprovalId) await cancelarPreapproval(assinatura.mercadoPagoPreapprovalId)
+
+        assinatura.planoId = plano._id
+        assinatura.status = 'pendente'
+        assinatura.cobranca = 'recorrente'
+        assinatura.inadimplenteDesde = null
+        // Um checkout novo começa sem período pago: se a 1ª cobrança for recusada, não é "atraso".
+        assinatura.proximaCobranca = null
+        assinatura.mercadoPagoPreapprovalId = criado.id
+        // O teste grátis continua valendo enquanto o pagamento não é aprovado.
+        await assinatura.save()
+        return { url: criado.init_point }
+    },
+
+    // Volta do checkout e botão "verificar": consulta o Mercado Pago pelos ids guardados no banco.
+    async sincronizarMercadoPago(tenantId) {
+        exigirMercadoPago()
+        const assinatura = await AssinaturaModel.findOne({ tenantId }).sort({ createdAt: -1 })
+        if (!assinatura) {
+            throw new AppError('Assinatura não encontrada', 404)
+        }
+        if (assinatura.cartaoAgendadoPreapprovalId) {
+            aplicarCartaoAgendado(assinatura, await chamarMercadoPago('GET', `/preapproval/${assinatura.cartaoAgendadoPreapprovalId}`))
+        }
+        if (assinatura.mercadoPagoPreapprovalId) {
+            aplicarStatusPreapproval(assinatura, await chamarMercadoPago('GET', `/preapproval/${assinatura.mercadoPagoPreapprovalId}`))
+        }
+        await planoGratisSeVoltou(assinatura)
+        await assinatura.save()
+        return await this.obterAssinaturaAtual(tenantId)
+    },
+
+    // Cancela a renovação no cartão. O acesso continua até o fim do período já pago.
+    async cancelarCartaoMercadoPago(tenantId) {
+        exigirMercadoPago()
+        const assinatura = await AssinaturaModel.findOne({ tenantId }).sort({ createdAt: -1 })
+        if (!assinatura || assinatura.cobranca !== 'recorrente' || !['ativa', 'pendente', 'inadimplente'].includes(assinatura.status) || !assinatura.mercadoPagoPreapprovalId) {
+            throw new AppError('Não há uma assinatura no cartão para cancelar', 400)
+        }
+        try {
+            await chamarMercadoPago('PUT', `/preapproval/${assinatura.mercadoPagoPreapprovalId}`, { corpo: { status: 'cancelled' } })
+        } catch (error) {
+            throw traduzirErroMercadoPago(error)
+        }
+        if (assinatura.status === 'pendente' || (assinatura.status === 'inadimplente' && !assinatura.proximaCobranca)) {
+            voltarAoGratuito(assinatura)
+            assinatura.mercadoPagoPreapprovalId = null
+        } else {
+            assinatura.status = 'cancelada'
+            assinatura.inadimplenteDesde = null
+        }
+        await planoGratisSeVoltou(assinatura)
+        await assinatura.save()
+        return await this.obterAssinaturaAtual(tenantId)
+    },
+
+    async processarWebhookPreapproval(preapprovalId) {
+        const assinatura = await AssinaturaModel.findOne({ mercadoPagoPreapprovalId: String(preapprovalId) })
+        if (assinatura) {
+            aplicarStatusPreapproval(assinatura, await chamarMercadoPago('GET', `/preapproval/${encodeURIComponent(preapprovalId)}`))
+            await planoGratisSeVoltou(assinatura)
+            await assinatura.save()
+            return
+        }
+        const agendada = await AssinaturaModel.findOne({ cartaoAgendadoPreapprovalId: String(preapprovalId) })
+        if (agendada) {
+            aplicarCartaoAgendado(agendada, await chamarMercadoPago('GET', `/preapproval/${encodeURIComponent(preapprovalId)}`))
+            await agendada.save()
+        }
+    },
+
+    // Cobrança mensal do cartão (não Pix): a referência é o id da assinatura local.
+    async aplicarPagamentoDoCartao(payment) {
+        if (!mongoose.isValidObjectId(payment.external_reference)) return
+        const assinatura = await AssinaturaModel.findById(payment.external_reference)
+        if (!assinatura || assinatura.cobranca !== 'recorrente') return
+
+        if (payment.status === 'approved') {
+            assinatura.status = 'ativa'
+            assinatura.inadimplenteDesde = null
+            const proxima = new Date()
+            proxima.setMonth(proxima.getMonth() + 1)
+            assinatura.proximaCobranca = proxima
+            // O Mercado Pago pode reenviar o mesmo aviso: o upsert por gatewayId conta cada cobrança uma vez só.
+            await PagamentoModel.findOneAndUpdate(
+                { gatewayId: String(payment.id) },
+                {
+                    $setOnInsert: {
+                        tenantId: assinatura.tenantId,
+                        assinaturaId: assinatura._id,
+                        planoId: assinatura.planoId,
+                        metodo: 'recorrente',
+                        status: 'aprovado',
+                        valor: payment.transaction_amount,
+                        moeda: payment.currency_id ?? 'BRL',
+                        aprovadoEm: new Date(),
+                    },
+                },
+                { upsert: true }
+            )
+        } else if (['rejected', 'cancelled'].includes(payment.status)) {
+            const primeiraTentativa = assinatura.status === 'pendente' && !assinatura.proximaCobranca
+            if (!primeiraTentativa) {
+                if (assinatura.status !== 'inadimplente') assinatura.inadimplenteDesde = new Date()
+                assinatura.status = 'inadimplente'
+            }
+        }
+        await assinatura.save()
+    },
+
     // ===================== Mercado Pago (Pix, só Brasil) =====================
 
     async iniciarPagamentoPix(tenantId, planoId, documento) {
@@ -403,7 +653,9 @@ export const AssinaturaService = {
         await this.confirmarPixPendente(tenantId).catch(() => null)
         const assinatura = await this.obterAssinaturaAtual(tenantId)
 
-        if (assinatura.cobranca === 'stripe' && ['ativa', 'inadimplente'].includes(assinatura.status)) {
+        const cartaoAtivo = (assinatura.cobranca === 'stripe' && ['ativa', 'inadimplente'].includes(assinatura.status))
+            || (assinatura.cobranca === 'recorrente' && assinatura.status === 'ativa')
+        if (cartaoAtivo) {
             throw new AppError('Sua assinatura no cartão está ativa e renova sozinha. Para pagar por Pix, cancele a assinatura no cartão antes.', 409)
         }
 
@@ -532,6 +784,17 @@ export const AssinaturaService = {
         const temPeriodoPago = (assinatura.status === 'ativa' && ['pix', 'manual'].includes(assinatura.cobranca)) || assinatura.status === 'cancelada'
         const base = temPeriodoPago && assinatura.proximaCobranca && assinatura.proximaCobranca > agora ? assinatura.proximaCobranca : agora
 
+        // Cartão do Mercado Pago em atraso (pausado) é encerrado para não cobrar ao lado do Pix; troca para o cartão
+        // iniciada e não concluída também é descartada.
+        if (assinatura.status === 'inadimplente' && assinatura.cobranca === 'recorrente' && assinatura.mercadoPagoPreapprovalId) {
+            await cancelarPreapproval(assinatura.mercadoPagoPreapprovalId)
+            assinatura.mercadoPagoPreapprovalId = null
+        }
+        if (assinatura.cartaoAgendadoPreapprovalId) {
+            await cancelarPreapproval(assinatura.cartaoAgendadoPreapprovalId)
+            assinatura.cartaoAgendadoPreapprovalId = null
+        }
+
         assinatura.planoId = pagamento.planoId
         assinatura.status = 'ativa'
         assinatura.cobranca = 'pix'
@@ -542,7 +805,10 @@ export const AssinaturaService = {
 
     async processarWebhookMercadoPago(paymentId) {
         const payment = await chamarMercadoPago('GET', `/v1/payments/${paymentId}`)
-        if (payment.payment_method_id !== 'pix') return
+        if (payment.payment_method_id !== 'pix') {
+            await this.aplicarPagamentoDoCartao(payment)
+            return
+        }
         const pagamento = await PagamentoModel.findOne({ metodo: 'pix', gatewayId: String(payment.id) })
         if (pagamento) await this.aplicarPagamentoPix(pagamento, payment)
     },

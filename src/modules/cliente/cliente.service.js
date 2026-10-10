@@ -107,8 +107,8 @@ export const ClienteService = {
         if (Number.isNaN(fim.getTime()) || fim <= new Date()) {
             throw new AppError('Informe uma data no futuro', 400)
         }
-        if (assinatura.cobranca === 'stripe' && ['ativa', 'inadimplente'].includes(assinatura.status)) {
-            throw new AppError('Este cliente paga no cartão. Cancele a assinatura no Stripe antes de liberar manualmente.', 409)
+        if (['stripe', 'recorrente'].includes(assinatura.cobranca) && ['ativa', 'inadimplente'].includes(assinatura.status)) {
+            throw new AppError('Este cliente paga no cartão (renova sozinho). Cancele a assinatura no cartão antes de liberar manualmente.', 409)
         }
         assinatura.planoId = plano._id
         assinatura.status = 'ativa'

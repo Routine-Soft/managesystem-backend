@@ -37,7 +37,9 @@ async function comAcesso(assinatura) {
         acesso: avaliarAcesso(assinatura),
         formasDePagamento: {
             pais: dono?.pais ?? 'BR',
+            // Brasil: cartão (renova sozinho) e Pix pelo Mercado Pago. Fora: cartão pelo Stripe.
             cartao: !brasil && stripeConfigurado(),
+            cartaoMercadoPago: brasil && mercadoPagoConfigurado(),
             pix: brasil && mercadoPagoConfigurado(),
             cotacaoUSD: brasil ? await cotacaoDoDolar().catch(() => null) : null,
         },
@@ -79,6 +81,21 @@ export const AssinaturaController = {
         return reply.send({ success: true, data: await comAcesso(assinatura), message: 'Assinatura atualizada' })
     },
 
+    async cartaoMercadoPago(req, reply) {
+        const result = await AssinaturaService.iniciarCartaoMercadoPago(req.user.tenantId, req.body?.planoId)
+        return reply.send({ success: true, data: result, message: 'Abrindo o pagamento' })
+    },
+
+    async sincronizarMercadoPago(req, reply) {
+        const assinatura = await AssinaturaService.sincronizarMercadoPago(req.user.tenantId)
+        return reply.send({ success: true, data: await comAcesso(assinatura), message: 'Assinatura atualizada' })
+    },
+
+    async cancelarCartaoMercadoPago(req, reply) {
+        const assinatura = await AssinaturaService.cancelarCartaoMercadoPago(req.user.tenantId)
+        return reply.send({ success: true, data: await comAcesso(assinatura), message: 'Assinatura cancelada' })
+    },
+
     async pix(req, reply) {
         const { planoId, documento } = req.body ?? {}
         const pagamento = await AssinaturaService.iniciarPagamentoPix(req.user.tenantId, planoId, documento)
@@ -113,6 +130,9 @@ export const AssinaturaController = {
         const type = req.body?.type ?? req.query.type
         if (type === 'payment' && dataId) {
             await AssinaturaService.processarWebhookMercadoPago(dataId)
+        }
+        if (type === 'subscription_preapproval' && dataId) {
+            await AssinaturaService.processarWebhookPreapproval(dataId)
         }
         return reply.send({ received: true })
     },

@@ -7,7 +7,7 @@ const pagamentoSchema = new mongoose.Schema({
     assinaturaId: { type: mongoose.Schema.Types.ObjectId, ref: 'assinaturas', required: true },
     planoId: { type: mongoose.Schema.Types.ObjectId, ref: 'planos', default: null },
 
-    metodo: { type: String, enum: ['pix', 'stripe'], required: true },
+    metodo: { type: String, enum: ['pix', 'stripe', 'recorrente'], required: true },
     // Id do pagamento no Mercado Pago ou da fatura no Stripe.
     gatewayId: { type: String, required: true, unique: true },
     status: {

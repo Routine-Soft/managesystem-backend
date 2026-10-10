@@ -12,9 +12,12 @@ const assinaturaSchema = new mongoose.Schema({
 
     dataInicio: { type: Date, default: Date.now },
     dataFimTrial: { type: Date, default: null },
-    // stripe: cartão, renova sozinho. pix: pagamento avulso pelo Mercado Pago, vale até proximaCobranca.
-    // manual: liberada pelo super_admin, sem cobrança automática.
-    cobranca: { type: String, enum: ['stripe', 'pix', 'manual'], default: 'stripe' },
+    // stripe: cartão internacional, renova sozinho. recorrente: cartão no Mercado Pago (Brasil), renova sozinho.
+    // pix: pagamento avulso pelo Mercado Pago, vale até proximaCobranca. manual: liberada pelo super_admin.
+    cobranca: { type: String, enum: ['stripe', 'recorrente', 'pix', 'manual'], default: 'stripe' },
+    mercadoPagoPreapprovalId: { type: String, default: null, index: true },
+    // Troca do Pix para o cartão: a assinatura no cartão só começa a cobrar quando o período do Pix acaba.
+    cartaoAgendadoPreapprovalId: { type: String, default: null },
     stripeCustomerId: { type: String, default: null, index: true },
     stripeSubscriptionId: { type: String, default: null, index: true },
     proximaCobranca: { type: Date, default: null },
