@@ -10,7 +10,7 @@ import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const VERSAO = '1.4.0'
+const VERSAO = '1.4.1'
 
 const PASTA_DADOS = process.env.MSA_DADOS || '/var/lib/managesystem-agent'
 const ARQUIVO_CONFIG = process.env.MSA_CONFIG || '/etc/managesystem-agent/config.json'
@@ -222,6 +222,8 @@ async function errosDoJournal() {
             const e = JSON.parse(texto)
             estado.journalCursor = e.__CURSOR
             const mensagem = Array.isArray(e.MESSAGE) ? Buffer.from(e.MESSAGE).toString('utf8') : String(e.MESSAGE ?? '')
+            // Ruído conhecido e inofensivo: redes virtuais de container que somem quando um container é recriado.
+            if (/Interface "veth[0-9a-f]+" not found/.test(mensagem)) continue
             linhas.push({
                 em: new Date(Number(e.__REALTIME_TIMESTAMP) / 1000).toISOString(),
                 origem: e._SYSTEMD_UNIT || e.SYSLOG_IDENTIFIER || 'sistema',
@@ -256,8 +258,10 @@ function erroDaLinha(linha) {
     if (inicio >= 0 && linha.trimEnd().endsWith('}')) {
         try {
             const j = JSON.parse(linha.slice(inicio))
-            const status = Number(j.err?.statusCode ?? j.res?.statusCode ?? 0)
-            if (Number(j.level) < 50 || (status && status < 500)) return null
+            // Nível em número (pino: 50 = error, 60 = fatal) ou em texto (Caddy e outros: "error", "fatal"...).
+            const nivel = typeof j.level === 'number' ? j.level >= 50 : ['error', 'fatal', 'panic', 'dpanic', 'crit', 'critical'].includes(String(j.level).toLowerCase())
+            const status = Number(j.err?.statusCode ?? j.res?.statusCode ?? j.status ?? 0)
+            if (!nivel || (status && status < 500)) return null
             const onde = String(j.err?.stack ?? '').split('\n').find((l) => /^\s+at /.test(l))?.trim()
             return [j.err?.type, j.err?.message ?? j.msg].filter(Boolean).join(': ') + (onde ? ` (${onde})` : '')
         } catch {
