@@ -44,6 +44,12 @@ export function coletaDTO(body) {
         logs: lista(b.logs, 50)
             .map((l) => ({ em: data(l?.em) ?? new Date(), origem: texto(l?.origem, 60), linha: texto(l?.linha, 500) }))
             .filter((l) => l.linha),
+        acoes: {
+            permitidas: !!b.acoes?.permitidas,
+            resultados: lista(b.acoes?.resultados, 10)
+                .map((r) => ({ id: texto(r?.id, 24), status: texto(r?.status, 20), saida: texto(r?.saida, 4000) }))
+                .filter((r) => /^[a-f0-9]{24}$/.test(r.id ?? '') && ['executando', 'ok', 'erro'].includes(r.status)),
+        },
         // Só quando a máquina tem Docker; senão vem vazio.
         containers: Array.isArray(b.containers)
             ? lista(b.containers, 60)
@@ -80,6 +86,7 @@ export function inventarioDTO(body) {
             cpus: numero(s.cpus, { max: 4096 }),
             ramTotal: numero(s.ramTotal),
             discoTotal: numero(s.discoTotal),
+            atualizacoesAutomaticas: typeof b.atualizacoesAutomaticas === 'boolean' ? b.atualizacoesAutomaticas : null,
         },
         versoes: lista(b.versoes, 40)
             .map((v) => ({ nome: texto(v?.nome, 40), versao: texto(v?.versao, 60) }))

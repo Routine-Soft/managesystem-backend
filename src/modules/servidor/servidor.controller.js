@@ -36,6 +36,14 @@ export const ServidorController = {
         return reply.send({ success: true, data: result, message: 'Novo comando gerado. O comando antigo deixou de funcionar.' })
     },
 
+    async pedirAcao(req, reply) {
+        const servidor = await ServidorService.pedirAcao(req.user, req.params.id, req.body)
+        const mensagem = req.body?.tipo === 'reiniciar'
+            ? 'Pedido enviado. O servidor reinicia no próximo minuto e fica fora do ar por 1 a 2 minutos.'
+            : 'Pedido enviado. As atualizações começam no próximo minuto.'
+        return reply.send({ success: true, data: servidor, message: mensagem })
+    },
+
     async verificarAgora(req, reply) {
         await ServidorService.verificarAgora(req.user.tenantId, req.params.id)
         return reply.send({ success: true, data: null, message: 'Pedido enviado. O agente atualiza os dados em até 1 minuto.' })

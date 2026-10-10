@@ -26,8 +26,55 @@ async function contaLiberada(tenantId) {
     return liberado
 }
 
-function resposta(servidor) {
-    return { inventarioPendente: !!servidor.agente?.inventarioPendente, versaoAgente: VERSAO_DO_AGENTE, intervalo: 60 }
+function resposta(servidor, acao = null) {
+    return {
+        inventarioPendente: !!servidor.agente?.inventarioPendente,
+        versaoAgente: VERSAO_DO_AGENTE,
+        intervalo: 60,
+        // Próxima ação pedida no painel (o agente só repassa ao serviço de ações, se ele existir).
+        acao: acao ? { id: String(acao._id), tipo: acao.tipo } : null,
+    }
+}
+
+const ACAO_EXPIRA_MS = 30 * 60 * 1000
+const TITULO_DA_ACAO = {
+    atualizar: { ok: 'Atualizações do sistema instaladas pelo painel', erro: 'Falha ao instalar as atualizações pelo painel' },
+    reiniciar: { ok: 'Servidor reiniciado pelo painel', erro: 'Falha ao reiniciar pelo painel' },
+}
+
+// Resultados que o agente trouxe, ações esquecidas (expiradas) e a próxima a enviar.
+function processarAcoes(servidor, c, agora) {
+    servidor.agente.acoesPermitidas = c.acoes.permitidas
+    const eventos = []
+    for (const r of c.acoes.resultados) {
+        const acao = (servidor.acoes ?? []).find((a) => String(a._id) === r.id)
+        if (!acao || ['ok', 'erro', 'expirada'].includes(acao.status)) continue
+        acao.status = r.status
+        acao.saida = r.saida
+        if (r.status === 'executando' && !acao.iniciadaEm) acao.iniciadaEm = agora
+        if (r.status === 'ok' || r.status === 'erro') {
+            acao.concluidaEm = agora
+            eventos.push({
+                tenantId: servidor.tenantId,
+                servidorId: servidor._id,
+                em: agora,
+                tipo: 'agente',
+                titulo: `${TITULO_DA_ACAO[acao.tipo][r.status]}${acao.pedidaPor ? ` (${acao.pedidaPor})` : ''}`,
+                detalhe: r.saida ? r.saida.slice(-1500) : null,
+                chave: `acao:${acao._id}`,
+            })
+            // Pacotes mudaram: o painel pede o inventário de novo.
+            if (acao.tipo === 'atualizar') servidor.agente.inventarioPendente = true
+        }
+    }
+    for (const acao of servidor.acoes ?? []) {
+        if (['pendente', 'enviada'].includes(acao.status) && agora - new Date(acao.pedidaEm) > ACAO_EXPIRA_MS) acao.status = 'expirada'
+    }
+    const proxima = c.acoes.permitidas ? (servidor.acoes ?? []).find((a) => a.status === 'pendente') : null
+    if (proxima) proxima.status = 'enviada'
+    // Enviada e ainda sem resultado: manda de novo (o agente ignora se já recebeu).
+    const reenviar = proxima ?? (servidor.acoes ?? []).find((a) => a.status === 'enviada')
+    return { eventos, acao: reenviar ?? null }
 }
 
 async function registrarEventos(eventos) {
@@ -80,6 +127,8 @@ export const AgenteService = {
         if (c.logs.length) {
             servidor.logs = [...c.logs.reverse(), ...(servidor.logs ?? [])].slice(0, MAX_LOGS)
         }
+        const { eventos: eventosDeAcoes, acao } = processarAcoes(servidor, c, agora)
+
         // Agente antigo não manda a lista (null): mantém o que havia.
         if (c.containers) {
             await this.alertarContainers(servidor, c.containers)
@@ -118,8 +167,9 @@ export const AgenteService = {
             req5xx: c.req5xx,
             erros: c.erros,
         })
+        await registrarEventos(eventosDeAcoes)
 
-        return resposta(servidor)
+        return resposta(servidor, acao)
     },
 
     // RAM ou disco acima do limite: avisa, e só repete depois de 6 horas.

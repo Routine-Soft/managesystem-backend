@@ -147,4 +147,13 @@ export const MENSAGENS_EN = {
     'Assinante atualizado': 'Subscriber updated',
     'Assinante excluído': 'Subscriber deleted',
     'Senha redefinida': 'Password reset',
+    'Só o administrador da conta pode fazer isso': 'Only the account administrator can do this',
+    'Ação desconhecida': 'Unknown action',
+    'Senha incorreta': 'Incorrect password',
+    'Este servidor não permite ações pelo painel. Reinstale o agente com a opção --permitir-acoes.': 'This server does not allow actions from the panel. Reinstall the agent with the --permitir-acoes option.',
+    'Já existe uma ação em andamento neste servidor. Espere ela terminar.': 'There is already an action running on this server. Wait for it to finish.',
+    'Pedido enviado. O servidor reinicia no próximo minuto e fica fora do ar por 1 a 2 minutos.': 'Request sent. The server restarts within the next minute and will be down for 1 to 2 minutes.',
+    'Pedido enviado. As atualizações começam no próximo minuto.': 'Request sent. The updates start within the next minute.',
+    'Escolha outro servidor: um servidor não pode rodar dentro dele mesmo': 'Choose another server: a server cannot run inside itself',
+    'Servidor do container não encontrado': 'Container server not found',
 }

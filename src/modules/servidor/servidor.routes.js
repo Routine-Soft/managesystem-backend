@@ -15,5 +15,6 @@ export async function servidorRoutes(fastify) {
         fastify.delete('/servidores/:id', ServidorController.remover)
         fastify.post('/servidores/:id/comando', ServidorController.novoComando)
         fastify.post('/servidores/:id/verificar', ServidorController.verificarAgora)
+        fastify.post('/servidores/:id/acoes', ServidorController.pedirAcao)
     })
 }

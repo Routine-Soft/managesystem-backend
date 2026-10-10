@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import argon2 from 'argon2'
 import ServidorModel from './servidor.model.js'
 import MetricaModel from './metrica.model.js'
 import VerificacaoModel from './verificacao.model.js'
@@ -7,6 +8,7 @@ import EventoModel from './evento.model.js'
 import SiteModel from '../site/site.model.js'
 import ContratanteModel from '../contratante/contratante.model.js'
 import UserModel from '../user/user.model.js'
+import { cotacoesPara } from '../shared/utils/cambio.js'
 import { AssinaturaService } from '../assinatura/assinatura.service.js'
 import { servidorDTO } from './servidor.dto.js'
 import { gerarTokenDoAgente, comandoDeInstalacao, comandoDeRemocao } from './servidor.token.js'
@@ -272,6 +274,32 @@ export const ServidorService = {
         return await SiteModel.findOne({ tenantId: servidor.tenantId, dominio: { $in: candidatos } }).sort({ dominio: -1 })
     },
 
+    // Botões "Instalar atualizações" e "Reiniciar". Só para o dono/admin, com a senha da conta, e só em servidor
+    // cujo agente foi instalado com --permitir-acoes. O agente busca o pedido no próximo minuto.
+    async pedirAcao(usuario, id, body) {
+        if (!['admin', 'super_admin'].includes(usuario.role)) {
+            throw new AppError('Só o administrador da conta pode fazer isso', 403)
+        }
+        const tipo = body?.tipo
+        if (!['atualizar', 'reiniciar'].includes(tipo)) {
+            throw new AppError('Ação desconhecida', 400)
+        }
+        const dono = await UserModel.findById(usuario.id, 'password nomeCompleto')
+        if (!dono || !(await argon2.verify(dono.password, String(body?.senha ?? '')).catch(() => false))) {
+            throw new AppError('Senha incorreta', 400)
+        }
+        const servidor = await buscarDoTenant(usuario.tenantId, id)
+        if (!servidor.agente?.acoesPermitidas) {
+            throw new AppError('Este servidor não permite ações pelo painel. Reinstale o agente com a opção --permitir-acoes.', 400)
+        }
+        if ((servidor.acoes ?? []).some((a) => ['pendente', 'enviada', 'executando'].includes(a.status))) {
+            throw new AppError('Já existe uma ação em andamento neste servidor. Espere ela terminar.', 409)
+        }
+        servidor.acoes = [{ tipo, status: 'pendente', pedidaEm: new Date(), pedidaPor: dono.nomeCompleto ?? null }, ...(servidor.acoes ?? [])].slice(0, 10)
+        await servidor.save()
+        return resumoDoServidor(servidor)
+    },
+
     // Resumo da página inicial: todos os servidores e o que precisa de atenção.
     async resumoGeral(tenantId) {
         const tid = new mongoose.Types.ObjectId(String(tenantId))
@@ -292,10 +320,12 @@ export const ServidorService = {
                 return { cliente: c.nome, moeda: c.cobranca?.moeda ?? 'BRL', itens, total: itens.reduce((soma, i) => soma + (Number(i.valor) || 0), 0) }
             })
 
+        // Moeda da conta: a do "0" quando não há cliente cobrando e a da conversão de valores em outra moeda.
+        const moedaPadrao = (dono?.pais ?? 'BR') === 'BR' ? 'BRL' : 'USD'
         return {
             servidores: servidores.map((s) => ({ ...s, mensalidades: mensalidadesDo(s._id) })),
-            // Moeda do "0" quando o servidor não tem cliente cobrando.
-            moedaPadrao: (dono?.pais ?? 'BR') === 'BR' ? 'BRL' : 'USD',
+            moedaPadrao,
+            cotacoes: await cotacoesPara(moedaPadrao).catch(() => null),
             quedas30d,
             sites,
         }

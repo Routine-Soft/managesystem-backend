@@ -238,7 +238,7 @@ export const PortalService = {
         }
         const painel = await ServidorService.painel(contratante.tenantId, servidorId, { periodo: query?.periodo, tz: query?.tz })
         // A máquina pode ter sistemas de outros clientes: os containers ficam só com o programador.
-        const { custo: _custo, containers: _containers, containersEm: _containersEm, containerAtual: _containerAtual, container: _container, ...servidor } = painel.servidor
+        const { custo: _custo, containers: _containers, containersEm: _containersEm, containerAtual: _containerAtual, container: _container, acoes: _acoes, ...servidor } = painel.servidor
         return { ...painel, servidor, site: null }
     },
 

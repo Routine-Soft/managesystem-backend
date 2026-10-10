@@ -58,7 +58,21 @@ const servidorSchema = new mongoose.Schema({
         // Pedido de "verificar agora": o agente manda o inventário completo no próximo minuto.
         inventarioPendente: { type: Boolean, default: true },
         ultimoInventario: { type: Date, default: null },
+        // Instalado com --permitir-acoes: o painel pode pedir "instalar atualizações" e "reiniciar".
+        acoesPermitidas: { type: Boolean, default: false },
     },
+
+    // Ações pedidas pelo painel (as 10 mais recentes). pendente → enviada (ao agente) → executando → ok/erro;
+    // sem resposta do agente em 30 min vira expirada.
+    acoes: [{
+        tipo: { type: String, enum: ['atualizar', 'reiniciar'] },
+        status: { type: String, enum: ['pendente', 'enviada', 'executando', 'ok', 'erro', 'expirada'], default: 'pendente' },
+        pedidaEm: Date,
+        pedidaPor: String,
+        iniciadaEm: Date,
+        concluidaEm: Date,
+        saida: String,
+    }],
 
     sistema: {
         hostname: String,
@@ -70,6 +84,8 @@ const servidorSchema = new mongoose.Schema({
         ramTotal: Number,
         discoTotal: Number,
         bootEm: Date,
+        // Atualizações automáticas de segurança (unattended-upgrades): true, false ou null (não é Debian/Ubuntu).
+        atualizacoesAutomaticas: { type: Boolean, default: null },
     },
 
     // Última leitura do agente (para os cartões, sem ir no histórico).

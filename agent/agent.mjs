@@ -10,7 +10,7 @@ import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const VERSAO = '1.3.0'
+const VERSAO = '1.4.0'
 
 const PASTA_DADOS = process.env.MSA_DADOS || '/var/lib/managesystem-agent'
 const ARQUIVO_CONFIG = process.env.MSA_CONFIG || '/etc/managesystem-agent/config.json'
@@ -349,6 +349,62 @@ async function containers() {
     return { lista, erros }
 }
 
+// ---------------------------------------------------------------- ações do painel (opcional)
+
+// Só existe se o agente foi instalado com --permitir-acoes. O agente NÃO executa nada: apenas grava o
+// pedido na pasta dele; o serviço managesystem-acao (fora do agente) faz a ação e grava o resultado.
+const PASTA_ACOES = path.join(PASTA_DADOS, 'acoes')
+const MARCA_ACOES = path.join(path.dirname(ARQUIVO_CONFIG), 'acoes-permitidas')
+const ACOES_CONHECIDAS = ['atualizar', 'reiniciar']
+
+function acoesPermitidas() {
+    return fs.existsSync(MARCA_ACOES)
+}
+
+// Resultados prontos (ou em andamento) das ações pedidas.
+function resultadosDasAcoes() {
+    let arquivos = []
+    try {
+        arquivos = fs.readdirSync(PASTA_ACOES).filter((a) => /^resultado-[a-f0-9]{24}\.status$/.test(a))
+    } catch {
+        return []
+    }
+    return arquivos.map((arquivo) => {
+        const id = arquivo.slice('resultado-'.length, -'.status'.length)
+        const status = (lerArquivo(path.join(PASTA_ACOES, arquivo)) ?? '').trim()
+        const saida = (lerArquivo(path.join(PASTA_ACOES, `resultado-${id}.log`)) ?? '').slice(-4000)
+        return { id, status, saida }
+    })
+}
+
+// Depois que a API recebeu um resultado final, os arquivos dele podem sair.
+function limparResultados(resultados) {
+    for (const r of resultados.filter((x) => x.status === 'ok' || x.status === 'erro')) {
+        for (const fim of ['status', 'log']) fs.rmSync(path.join(PASTA_ACOES, `resultado-${r.id}.${fim}`), { force: true })
+    }
+}
+
+function guardarPedido(acao) {
+    if (!acao || !acoesPermitidas()) return
+    if (!/^[a-f0-9]{24}$/.test(String(acao.id)) || !ACOES_CONHECIDAS.includes(acao.tipo)) return
+    if (estado.ultimaAcao === acao.id) return
+    const pedido = path.join(PASTA_ACOES, 'pedido')
+    if (fs.existsSync(pedido)) return
+    fs.mkdirSync(PASTA_ACOES, { recursive: true })
+    fs.writeFileSync(`${pedido}.tmp`, `${acao.id} ${acao.tipo}\n`, { mode: 0o600 })
+    fs.renameSync(`${pedido}.tmp`, pedido)
+    estado.ultimaAcao = acao.id
+    salvarEstado()
+    log(`Pedido do painel recebido: ${acao.tipo}`)
+}
+
+// Atualizações automáticas de segurança do Ubuntu/Debian (unattended-upgrades) ligadas?
+function atualizacoesAutomaticas() {
+    const texto = lerArquivo('/etc/apt/apt.conf.d/20auto-upgrades')
+    if (texto === null) return fs.existsSync('/etc/apt') ? false : null
+    return /APT::Periodic::Unattended-Upgrade\s+"1"/.test(texto)
+}
+
 // ---------------------------------------------------------------- coleta de cada minuto
 
 async function coleta() {
@@ -367,9 +423,13 @@ async function coleta() {
         errosTotal: logs.length,
         logs: logs.slice(-50),
         containers: docker.lista,
+        acoes: { permitidas: acoesPermitidas(), resultados: resultadosDasAcoes() },
     }
     salvarEstado()
-    return await enviar('coleta', corpo)
+    const resposta = await enviar('coleta', corpo)
+    limparResultados(corpo.acoes.resultados)
+    guardarPedido(resposta.acao)
+    return resposta
 }
 
 // ---------------------------------------------------------------- inventário (a cada 6 horas)
@@ -716,6 +776,7 @@ async function inventario() {
         aptHistorico: historicoDoApt(),
         projetos,
         certbot: await certbot(),
+        atualizacoesAutomaticas: atualizacoesAutomaticas(),
     }
     const resposta = await enviar('inventario', corpo)
     estado.ultimoInventario = Date.now()
