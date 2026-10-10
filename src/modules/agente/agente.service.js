@@ -123,7 +123,14 @@ export const AgenteService = {
         servidor.agente.ultimoContato = agora
         servidor.agente.versao = c.versao
         servidor.agente.ip = ip
-        if (c.uptime !== null) servidor.sistema.bootEm = new Date(agora.getTime() - c.uptime * 1000)
+        if (c.uptime !== null) {
+            const bootEm = new Date(agora.getTime() - c.uptime * 1000)
+            // A máquina reiniciou (pelo botão ou por fora): pede o inventário de novo, senão "Reinício necessário"
+            // e os pacotes ficam com a informação de antes até a próxima rodada de 6 horas.
+            const anterior = servidor.sistema?.bootEm ? new Date(servidor.sistema.bootEm).getTime() : null
+            if (anterior && bootEm.getTime() - anterior > 5 * 60 * 1000) servidor.agente.inventarioPendente = true
+            servidor.sistema.bootEm = bootEm
+        }
         servidor.atual = { em: agora, cpu: c.cpu, load1: c.load1, ramTotal: c.ramTotal, ramUsada: c.ramUsada, discoTotal: c.discoTotal, discoUsado: c.discoUsado }
 
         if (c.logs.length) {
