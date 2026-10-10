@@ -1,6 +1,8 @@
 import ServidorModel from '../servidor/servidor.model.js'
 import MetricaModel from '../servidor/metrica.model.js'
 import EventoModel from '../servidor/evento.model.js'
+import TrafegoModel from '../servidor/trafego.model.js'
+import { contarPorPais } from '../shared/utils/geoip.js'
 import { hashDoToken } from '../servidor/servidor.token.js'
 import { categoriaDoPacote, saltoDeVersao } from '../servidor/dependencia.utils.js'
 import { AssinaturaService } from '../assinatura/assinatura.service.js'
@@ -168,6 +170,7 @@ export const AgenteService = {
             erros: c.erros,
         })
         await registrarEventos(eventosDeAcoes)
+        await this.registrarTrafego(servidor, c, agora).catch((error) => console.error('Tráfego por país não registrado:', error.message))
 
         return resposta(servidor, acao)
     },
@@ -186,6 +189,45 @@ export const AgenteService = {
         await checar('ram', c.ramTotal ? (c.ramUsada / c.ramTotal) * 100 : null, limites.ram)
         await checar('disco', c.discoTotal ? (c.discoUsado / c.discoTotal) * 100 : null, limites.disco)
         servidor.alertas = alertas
+    },
+
+    // Acessos por país (da máquina toda) e o tráfego de cada sistema em container: o endereço do acesso
+    // (rara.exemplo.com) aponta para o cadastro ligado ao container, que ganha requisições e o histórico de RAM/CPU.
+    async registrarTrafego(servidor, c, agora) {
+        const hora = new Date(Math.floor(agora.getTime() / 3600000) * 3600000)
+        const somarPaises = async (servidorId, faixas) => {
+            const paises = await contarPorPais(faixas)
+            const ops = Object.entries(paises).map(([pais, req]) => ({
+                updateOne: { filter: { servidorId, hora, pais }, update: { $inc: { req } }, upsert: true },
+            }))
+            if (ops.length) await TrafegoModel.bulkWrite(ops, { ordered: false })
+        }
+        await somarPaises(servidor._id, c.faixas)
+
+        const ligados = await ServidorModel.find({ tenantId: servidor.tenantId, 'container.servidorId': servidor._id }, 'url container.nome').lean()
+        for (const ligado of ligados) {
+            let hostDoLigado = null
+            try {
+                hostDoLigado = ligado.url ? new URL(ligado.url).hostname.toLowerCase() : null
+            } catch {
+                hostDoLigado = null
+            }
+            const h = hostDoLigado ? c.porHost.find((x) => x.host === hostDoLigado || x.host === `www.${hostDoLigado}` || `www.${x.host}` === hostDoLigado) : null
+            const container = c.containers?.find((x) => x.nome === ligado.container?.nome)
+            if (!h && !container) continue
+            await MetricaModel.create({
+                servidorId: ligado._id,
+                em: agora,
+                cpu: container?.cpu ?? null,
+                ramUsada: container?.ramUsada ?? null,
+                ramTotal: container?.ramLimite ?? null,
+                req: h?.total ?? 0,
+                req4xx: h?.s4xx ?? 0,
+                req5xx: h?.s5xx ?? 0,
+                erros: 0,
+            })
+            if (h) await somarPaises(ligado._id, h.faixas)
+        }
     },
 
     // Compara com a leitura anterior: container que reiniciou, parou ou ficou sem memória vira alerta.

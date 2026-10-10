@@ -22,6 +22,12 @@ export function lista(valor, max) {
     return Array.isArray(valor) ? valor.slice(0, max) : []
 }
 
+function faixasDTO(valor, max) {
+    return lista(valor, max)
+        .map((f) => ({ ip: f?.ip === null ? null : texto(f?.ip, 60), n: numero(f?.n, { max: 1e9 }) ?? 0 }))
+        .filter((f) => f.n > 0)
+}
+
 export function coletaDTO(body) {
     const b = body ?? {}
     const ramTotal = numero(b.ram?.total)
@@ -41,6 +47,17 @@ export function coletaDTO(body) {
         req4xx: numero(b.req?.s4xx) ?? 0,
         req5xx: numero(b.req?.s5xx) ?? 0,
         erros: numero(b.errosTotal) ?? 0,
+        // Faixas de IP (sem o último pedaço) para contar acessos por país; e a mesma contagem separada por endereço.
+        faixas: faixasDTO(b.req?.ips, 501),
+        porHost: lista(b.req?.porHost, 50)
+            .map((h) => ({
+                host: texto(h?.host, 200)?.toLowerCase() ?? null,
+                total: numero(h?.total) ?? 0,
+                s4xx: numero(h?.s4xx) ?? 0,
+                s5xx: numero(h?.s5xx) ?? 0,
+                faixas: faixasDTO(h?.ips, 301),
+            }))
+            .filter((h) => h.host),
         logs: lista(b.logs, 50)
             .map((l) => ({ em: data(l?.em) ?? new Date(), origem: texto(l?.origem, 60), linha: texto(l?.linha, 500) }))
             .filter((l) => l.linha),

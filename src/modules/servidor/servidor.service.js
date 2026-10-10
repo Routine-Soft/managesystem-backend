@@ -5,6 +5,7 @@ import MetricaModel from './metrica.model.js'
 import VerificacaoModel from './verificacao.model.js'
 import IncidenteModel from './incidente.model.js'
 import EventoModel from './evento.model.js'
+import TrafegoModel from './trafego.model.js'
 import SiteModel from '../site/site.model.js'
 import ContratanteModel from '../contratante/contratante.model.js'
 import UserModel from '../user/user.model.js'
@@ -159,7 +160,7 @@ export const ServidorService = {
         // Pontos do gráfico: ~ 1 por 5 min em 24 h; períodos maiores juntam mais minutos por ponto.
         const balde = { 1: 1, 24: 5, 168: 30, 720: 120 }[horas] ?? 5
 
-        const [serie, pico24h, disponibilidade, incidentes, eventos, site] = await Promise.all([
+        const [serie, pico24h, disponibilidade, incidentes, eventos, site, paises] = await Promise.all([
             MetricaModel.aggregate([
                 { $match: { servidorId: servidor._id, em: { $gte: desde } } },
                 {
@@ -184,6 +185,13 @@ export const ServidorService = {
             IncidenteModel.find({ servidorId: servidor._id, inicio: { $gte: new Date(agora.getTime() - 30 * DIA_MS) } }).sort({ inicio: -1 }).limit(50),
             EventoModel.find({ servidorId: servidor._id }).sort({ em: -1 }).limit(40),
             this.siteDoServidor(servidor),
+            // De onde vêm os acessos no período (por hora: no período de 1 h, a hora cheia em andamento).
+            TrafegoModel.aggregate([
+                { $match: { servidorId: servidor._id, hora: { $gte: new Date(Math.floor(desde.getTime() / 3600000) * 3600000) } } },
+                { $group: { _id: '$pais', req: { $sum: '$req' } } },
+                { $sort: { req: -1 } },
+                { $project: { _id: 0, pais: '$_id', req: 1 } },
+            ]),
         ])
 
         const quedas = incidentes.filter((i) => i.tipo === 'queda')
@@ -201,6 +209,7 @@ export const ServidorService = {
             },
             eventos,
             site,
+            paises,
         }
     },
 

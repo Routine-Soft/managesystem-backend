@@ -10,7 +10,7 @@ import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const VERSAO = '1.4.1'
+const VERSAO = '1.5.0'
 
 const PASTA_DADOS = process.env.MSA_DADOS || '/var/lib/managesystem-agent'
 const ARQUIVO_CONFIG = process.env.MSA_CONFIG || '/etc/managesystem-agent/config.json'
@@ -164,38 +164,76 @@ const LOGS_DE_ACESSO = Array.isArray(config.accessLogs) && config.accessLogs.len
     ? config.accessLogs
     : [config.nginxAccessLog || '/var/log/nginx/access.log', '/var/log/caddy/access.log']
 
-// Status HTTP de uma linha: Caddy grava JSON ({"status":200,...}); Nginx grava texto ("GET / HTTP/1.1" 200 ...).
+// Status HTTP, endereço (host) e IP de uma linha: Caddy grava JSON ({"status":200,...}); Nginx grava texto
+// ('1.2.3.4 - - [...] "GET / HTTP/1.1" 200 ...'; o Nginx padrão não grava o host).
 function lerLinhaDeAcesso(linha) {
     if (linha.startsWith('{')) {
         try {
             const j = JSON.parse(linha)
             const r = j.request ?? {}
-            return { status: Number(j.status), em: j.ts ? new Date(j.ts * 1000) : new Date(), resumo: `${r.method ?? ''} ${r.host ?? ''}${r.uri ?? ''}`.trim() }
+            const host = String(r.host ?? '').toLowerCase().replace(/:\d+$/, '') || null
+            return { status: Number(j.status), em: j.ts ? new Date(j.ts * 1000) : new Date(), host, ip: r.client_ip ?? r.remote_ip ?? null, resumo: `${r.method ?? ''} ${r.host ?? ''}${r.uri ?? ''}`.trim() }
         } catch {
             return null
         }
     }
     const status = Number(linha.match(/" (\d{3}) /)?.[1])
-    return status ? { status } : null
+    return status ? { status, host: null, ip: linha.split(' ')[0] || null } : null
 }
 
-// Conta as requisições novas. Erros 5xx do Caddy também viram linhas de log (o Caddy não tem error.log separado).
+// O IP não sai da máquina inteiro: só a faixa (IPv4 a.b.c.0, IPv6 os 3 primeiros blocos), que basta para achar o país.
+function faixaDoIp(ip) {
+    const texto = String(ip ?? '').trim()
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(texto)) return texto.replace(/\.\d{1,3}$/, '.0')
+    if (texto.includes(':')) {
+        const blocos = texto.replace(/^\[|\]$/g, '').split(':')
+        if (blocos.length >= 3) return `${blocos.slice(0, 3).join(':')}::`
+    }
+    return null
+}
+
+// Junta as faixas e manda só as mais frequentes (o resto vira "outros", sem país).
+function topFaixas(mapa, limite) {
+    const lista = Object.entries(mapa).sort((a, b) => b[1] - a[1])
+    const top = lista.slice(0, limite).map(([ip, n]) => ({ ip, n }))
+    const resto = lista.slice(limite).reduce((soma, [, n]) => soma + n, 0)
+    return resto ? [...top, { ip: null, n: resto }] : top
+}
+
+// Conta as requisições novas: no total da máquina e separadas por endereço (cada site/sistema), com as faixas de IP.
+// Erros 5xx do Caddy também viram linhas de log (o Caddy não tem error.log separado).
 function requisicoes() {
     const contagem = { total: 0, s4xx: 0, s5xx: 0 }
     const erros = []
+    const ips = {}
+    const porHost = {}
     for (const caminho of LOGS_DE_ACESSO) {
         for (const linha of novasLinhas(`acesso:${caminho}`, caminho)) {
             const r = lerLinhaDeAcesso(linha)
             if (!r?.status) continue
+            const faixa = faixaDoIp(r.ip)
             contagem.total++
+            if (faixa) ips[faixa] = (ips[faixa] ?? 0) + 1
+            const h = r.host ? (porHost[r.host] ??= { total: 0, s4xx: 0, s5xx: 0, ips: {} }) : null
+            if (h) {
+                h.total++
+                if (faixa) h.ips[faixa] = (h.ips[faixa] ?? 0) + 1
+            }
             if (r.status >= 500) {
                 contagem.s5xx++
+                if (h) h.s5xx++
                 if (r.resumo) erros.push({ em: r.em.toISOString(), origem: 'caddy', linha: `HTTP ${r.status} · ${r.resumo}`.slice(0, 500) })
             } else if (r.status >= 400) {
                 contagem.s4xx++
+                if (h) h.s4xx++
             }
         }
     }
+    contagem.ips = topFaixas(ips, 500)
+    contagem.porHost = Object.entries(porHost)
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, 50)
+        .map(([host, h]) => ({ host, total: h.total, s4xx: h.s4xx, s5xx: h.s5xx, ips: topFaixas(h.ips, 300) }))
     return { contagem, erros }
 }
 
