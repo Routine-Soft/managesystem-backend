@@ -15,6 +15,7 @@ const GRUPO_DO_TIPO = {
     lentidao: 'lentidao', lentidaoFim: 'lentidao',
     agente: 'agente', agenteVoltou: 'agente',
     ram: 'recursos', disco: 'recursos',
+    containerReiniciou: 'recursos', containerParou: 'recursos', containerMemoria: 'recursos',
     ssl: 'ssl', dominio: 'dominio', emails: 'emails', seguranca: 'seguranca',
     faturaPaga: 'faturas',
 }

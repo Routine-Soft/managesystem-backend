@@ -37,6 +37,13 @@ const servidorSchema = new mongoose.Schema({
         provedor: { type: String, default: null },
     },
 
+    // Sistema que roda num container de outro servidor cadastrado (ex.: rara no VPS da OVH):
+    // o cartão mostra a RAM e a CPU desse container, lidas pelo agente da máquina.
+    container: {
+        servidorId: { type: ObjectId, ref: 'servidores', default: null },
+        nome: { type: String, default: null },
+    },
+
     // Só o hash do token do agente fica no banco; o token aparece uma única vez, no comando de instalação.
     tokenHash: { type: String, default: null, index: true },
 

@@ -38,6 +38,9 @@ const TEXTOS = {
         agenteVoltou: ({ nome }) => `🟢 O agente de ${n(nome)} voltou a enviar dados.`,
         ram: ({ nome, pct }) => `🟠 ${n(nome)} está usando <b>${pct}% da memória RAM</b>.`,
         disco: ({ nome, pct }) => `🟠 O disco de ${n(nome)} está <b>${pct}% cheio</b>.`,
+        containerReiniciou: ({ nome, host, vezes }) => `🟠 ${n(nome)} <b>reiniciou</b> (container em ${n(host)}, ${vezes}x no total). Veja os logs de erro no painel.`,
+        containerParou: ({ nome, host }) => `🔴 O container de ${n(nome)} em ${n(host)} <b>parou</b>.`,
+        containerMemoria: ({ nome, host }) => `🔴 ${n(nome)} <b>ficou sem memória</b> e foi reiniciado (container em ${n(host)}). Talvez seja hora de aumentar o limite dele.`,
         ssl: ({ nome, restantes }) => restantes <= 0
             ? `🔴 O certificado SSL de ${n(nome)} <b>venceu</b>. Os visitantes veem um aviso de "site não seguro".`
             : `🔐 O certificado SSL de ${n(nome)} vence <b>${dias(restantes, 'pt')}</b>.`,
@@ -72,6 +75,9 @@ const TEXTOS = {
         agenteVoltou: ({ nome }) => `🟢 The agent on ${n(nome)} is sending data again.`,
         ram: ({ nome, pct }) => `🟠 ${n(nome)} is using <b>${pct}% of its RAM</b>.`,
         disco: ({ nome, pct }) => `🟠 The disk on ${n(nome)} is <b>${pct}% full</b>.`,
+        containerReiniciou: ({ nome, host, vezes }) => `🟠 ${n(nome)} <b>restarted</b> (container on ${n(host)}, ${vezes}x in total). Check the error logs in the panel.`,
+        containerParou: ({ nome, host }) => `🔴 The container for ${n(nome)} on ${n(host)} <b>stopped</b>.`,
+        containerMemoria: ({ nome, host }) => `🔴 ${n(nome)} <b>ran out of memory</b> and was restarted (container on ${n(host)}). It may be time to raise its limit.`,
         ssl: ({ nome, restantes }) => restantes <= 0
             ? `🔴 The SSL certificate for ${n(nome)} has <b>expired</b>. Visitors see a "not secure" warning.`
             : `🔐 The SSL certificate for ${n(nome)} expires <b>${dias(restantes, 'en')}</b>.`,

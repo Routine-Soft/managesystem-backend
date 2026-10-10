@@ -82,6 +82,7 @@ export const AgenteService = {
         }
         // Agente antigo não manda a lista (null): mantém o que havia.
         if (c.containers) {
+            await this.alertarContainers(servidor, c.containers)
             servidor.containers = c.containers.sort((a, b) => a.nome.localeCompare(b.nome))
             servidor.containersEm = agora
         }
@@ -135,6 +136,27 @@ export const AgenteService = {
         await checar('ram', c.ramTotal ? (c.ramUsada / c.ramTotal) * 100 : null, limites.ram)
         await checar('disco', c.discoTotal ? (c.discoUsado / c.discoTotal) * 100 : null, limites.disco)
         servidor.alertas = alertas
+    },
+
+    // Compara com a leitura anterior: container que reiniciou, parou ou ficou sem memória vira alerta.
+    // O nome no alerta é o do servidor cadastrado ligado ao container (ex.: "Rara App"), senão o do container.
+    async alertarContainers(servidor, novos) {
+        const antigos = Object.fromEntries((servidor.containers ?? []).map((c) => [c.nome, c]))
+        if (!Object.keys(antigos).length) return
+        const ligados = await ServidorModel.find({ tenantId: servidor.tenantId, 'container.servidorId': servidor._id }, 'nome container.nome').lean()
+        const nomeDe = (container) => ligados.find((l) => l.container?.nome === container)?.nome ?? container
+        for (const c of novos) {
+            const antes = proprio(antigos, c.nome)
+            if (!antes) continue
+            const dados = { nome: nomeDe(c.nome), host: servidor.nome, vezes: c.reinicios }
+            if (c.oom && (c.reinicios > (antes.reinicios ?? 0) || !antes.oom)) {
+                await AlertaService.notificar(servidor.tenantId, 'containerMemoria', dados)
+            } else if (c.reinicios > (antes.reinicios ?? 0)) {
+                await AlertaService.notificar(servidor.tenantId, 'containerReiniciou', dados)
+            } else if (antes.estado === 'running' && c.estado !== 'running' && c.estado !== 'restarting') {
+                await AlertaService.notificar(servidor.tenantId, 'containerParou', dados)
+            }
+        }
     },
 
     // Inventário (a cada 6 horas ou quando pedido): sistema, versões, pacotes, projetos e dependências.

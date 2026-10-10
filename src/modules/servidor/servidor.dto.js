@@ -34,5 +34,11 @@ export function servidorDTO(body) {
             provedor: String(body.custo.provedor ?? '').trim().slice(0, 60) || null,
         }
     }
+    // Container em outro servidor: vazio desliga a ligação.
+    if ('container' in body) {
+        const servidorId = body.container?.servidorId ? String(body.container.servidorId) : null
+        const nome = String(body.container?.nome ?? '').trim().slice(0, 80)
+        dto.container = servidorId && nome ? { servidorId, nome } : { servidorId: null, nome: null }
+    }
     return dto
 }

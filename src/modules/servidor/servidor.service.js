@@ -36,6 +36,34 @@ function resumoDoServidor(s) {
     }
 }
 
+// O servidor onde roda o container precisa ser da mesma conta, ter agente e não ser o próprio servidor.
+async function validarContainer(tenantId, container, proprioId = null) {
+    if (!container?.servidorId) return
+    exigirId(container.servidorId, 'Servidor do container não encontrado')
+    if (proprioId && String(container.servidorId) === String(proprioId)) {
+        throw new AppError('Escolha outro servidor: um servidor não pode rodar dentro dele mesmo', 400)
+    }
+    const host = await ServidorModel.exists({ _id: container.servidorId, tenantId })
+    if (!host) {
+        throw new AppError('Servidor do container não encontrado', 404)
+    }
+}
+
+// Junta a última leitura do container (feita pelo agente da máquina) aos servidores ligados a um container.
+async function comContainer(tenantId, resumos) {
+    const ligados = resumos.filter((r) => r.container?.servidorId)
+    if (!ligados.length) return resumos
+    const ids = [...new Set(ligados.map((r) => String(r.container.servidorId)))]
+    const hosts = await ServidorModel.find({ _id: { $in: ids }, tenantId }, 'nome containers containersEm').lean()
+    const porId = Object.fromEntries(hosts.map((h) => [String(h._id), h]))
+    return resumos.map((r) => {
+        const host = r.container?.servidorId ? porId[String(r.container.servidorId)] : null
+        if (!host) return r
+        const atual = (host.containers ?? []).find((c) => c.nome === r.container.nome) ?? null
+        return { ...r, containerAtual: atual ? { ...atual, em: host.containersEm, host: host.nome } : { nome: r.container.nome, host: host.nome, estado: 'ausente' } }
+    })
+}
+
 async function buscarDoTenant(tenantId, id) {
     exigirId(id, 'Servidor não encontrado')
     const servidor = await ServidorModel.findOne({ _id: id, tenantId })
@@ -48,7 +76,7 @@ async function buscarDoTenant(tenantId, id) {
 export const ServidorService = {
     async listar(tenantId) {
         const servidores = await ServidorModel.find({ tenantId }).sort({ nome: 1 })
-        return servidores.map(resumoDoServidor)
+        return await comContainer(tenantId, servidores.map(resumoDoServidor))
     },
 
     async criar(tenantId, body) {
@@ -62,6 +90,7 @@ export const ServidorService = {
             throw new AppError('Seu plano permite até {limite} servidores. Troque de plano para adicionar mais.', 403, 'LIMITE_DO_PLANO', { limite })
         }
 
+        await validarContainer(tenantId, dto.container)
         const { token, hash } = gerarTokenDoAgente()
         const servidor = await ServidorModel.create({ ...dto, tenantId, tokenHash: hash })
         return { servidor: resumoDoServidor(servidor), comando: comandoDeInstalacao(token), comandoRemocao: comandoDeRemocao() }
@@ -71,6 +100,7 @@ export const ServidorService = {
         const servidor = await buscarDoTenant(tenantId, id)
         const dto = servidorDTO(body ?? {})
         if ('nome' in dto && !dto.nome) delete dto.nome
+        await validarContainer(tenantId, dto.container, servidor._id)
 
         // Endereço trocado: o histórico de verificações antigo não vale mais para o estado atual.
         if ('url' in dto && dto.url !== servidor.url) {
@@ -81,7 +111,7 @@ export const ServidorService = {
         }
         Object.assign(servidor, dto)
         await servidor.save()
-        return resumoDoServidor(servidor)
+        return (await comContainer(tenantId, [resumoDoServidor(servidor)]))[0]
     },
 
     async remover(tenantId, id) {
@@ -152,7 +182,7 @@ export const ServidorService = {
 
         const quedas = incidentes.filter((i) => i.tipo === 'queda')
         return {
-            servidor: resumoDoServidor(servidor),
+            servidor: (await comContainer(tenantId, [resumoDoServidor(servidor)]))[0],
             periodo,
             serie,
             picoRam24h: pico24h ? { valor: pico24h.ramUsada, em: pico24h.em } : null,
