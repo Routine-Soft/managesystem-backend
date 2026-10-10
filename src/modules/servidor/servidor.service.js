@@ -5,6 +5,8 @@ import VerificacaoModel from './verificacao.model.js'
 import IncidenteModel from './incidente.model.js'
 import EventoModel from './evento.model.js'
 import SiteModel from '../site/site.model.js'
+import ContratanteModel from '../contratante/contratante.model.js'
+import UserModel from '../user/user.model.js'
 import { AssinaturaService } from '../assinatura/assinatura.service.js'
 import { servidorDTO } from './servidor.dto.js'
 import { gerarTokenDoAgente, comandoDeInstalacao, comandoDeRemocao } from './servidor.token.js'
@@ -54,13 +56,15 @@ async function comContainer(tenantId, resumos) {
     const ligados = resumos.filter((r) => r.container?.servidorId)
     if (!ligados.length) return resumos
     const ids = [...new Set(ligados.map((r) => String(r.container.servidorId)))]
-    const hosts = await ServidorModel.find({ _id: { $in: ids }, tenantId }, 'nome containers containersEm').lean()
+    const hosts = await ServidorModel.find({ _id: { $in: ids }, tenantId }, 'nome containers containersEm custo.provedor').lean()
     const porId = Object.fromEntries(hosts.map((h) => [String(h._id), h]))
     return resumos.map((r) => {
         const host = r.container?.servidorId ? porId[String(r.container.servidorId)] : null
         if (!host) return r
         const atual = (host.containers ?? []).find((c) => c.nome === r.container.nome) ?? null
-        return { ...r, containerAtual: atual ? { ...atual, em: host.containersEm, host: host.nome } : { nome: r.container.nome, host: host.nome, estado: 'ausente' } }
+        const containerAtual = atual ? { ...atual, em: host.containersEm, host: host.nome } : { nome: r.container.nome, host: host.nome, estado: 'ausente' }
+        // Sem provedor próprio, vale o da máquina onde o container roda.
+        return { ...r, containerAtual, provedorDoHost: host.custo?.provedor ?? null }
     })
 }
 
@@ -272,11 +276,28 @@ export const ServidorService = {
     async resumoGeral(tenantId) {
         const tid = new mongoose.Types.ObjectId(String(tenantId))
         const desde = new Date(Date.now() - 30 * DIA_MS)
-        const [servidores, quedas30d, sites] = await Promise.all([
+        const [servidores, quedas30d, sites, clientes, dono] = await Promise.all([
             this.listar(tenantId),
             IncidenteModel.countDocuments({ tenantId: tid, tipo: 'queda', inicio: { $gte: desde } }),
             SiteModel.find({ tenantId }).sort({ dominio: 1 }),
+            ContratanteModel.find({ tenantId, 'cobranca.ativa': true }, 'nome servidores cobranca').lean(),
+            UserModel.findById(tenantId, 'pais').lean(),
         ])
-        return { servidores, quedas30d, sites }
+
+        // Mensalidade que cada cliente paga, no cartão de cada servidor ligado a ele (itens e total).
+        const mensalidadesDo = (servidorId) => clientes
+            .filter((c) => (c.servidores ?? []).some((id) => String(id) === String(servidorId)))
+            .map((c) => {
+                const itens = (c.cobranca?.itens ?? []).map((i) => ({ descricao: i.descricao, valor: i.valor }))
+                return { cliente: c.nome, moeda: c.cobranca?.moeda ?? 'BRL', itens, total: itens.reduce((soma, i) => soma + (Number(i.valor) || 0), 0) }
+            })
+
+        return {
+            servidores: servidores.map((s) => ({ ...s, mensalidades: mensalidadesDo(s._id) })),
+            // Moeda do "0" quando o servidor não tem cliente cobrando.
+            moedaPadrao: (dono?.pais ?? 'BR') === 'BR' ? 'BRL' : 'USD',
+            quedas30d,
+            sites,
+        }
     },
 }
