@@ -1,9 +1,15 @@
 import { PlanoService } from './plano.service.js'
+import { cotacaoDoDolar } from '../shared/utils/cambio.js'
 
 export const PlanoController = {
     async listar(req, reply) {
         const planos = await PlanoService.listar(req.user.role)
         return reply.send({ success: true, data: planos })
+    },
+
+    async publicos(req, reply) {
+        const planos = await PlanoService.publicos()
+        return reply.send({ success: true, data: { planos, cotacaoUSD: await cotacaoDoDolar().catch(() => null) } })
     },
 
     async criar(req, reply) {

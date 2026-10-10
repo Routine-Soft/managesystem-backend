@@ -2,6 +2,9 @@ import { PlanoController } from './plano.controller.js'
 import { authenticate, authorize } from '../shared/middlewares/auth.middleware.js'
 
 export async function planoRoutes(fastify) {
+    // Pública: a página inicial mostra os planos para quem ainda não tem conta.
+    fastify.get('/planos/publicos', PlanoController.publicos)
+
     fastify.register(async function (fastify) {
         fastify.addHook('preHandler', authenticate)
 

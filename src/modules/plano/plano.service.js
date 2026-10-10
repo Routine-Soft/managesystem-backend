@@ -11,6 +11,21 @@ export const PlanoService = {
         return await PlanoModel.find(filtro).sort({ tipo: 1, precoUSD: 1 })
     },
 
+    // Página inicial (sem login): só os planos ativos e só o que o visitante precisa ver.
+    async publicos() {
+        const planos = await PlanoModel.find({ ativo: true }).sort({ tipo: 1, precoUSD: 1 })
+        return planos.map((p) => ({
+            _id: p._id,
+            nome: p.nome,
+            descricao: p.descricao,
+            tipo: p.tipo,
+            precoUSD: p.precoUSD,
+            duracaoDiasTrial: p.duracaoDiasTrial,
+            limiteServidores: p.limiteServidores,
+            limiteSites: p.limiteSites,
+        }))
+    },
+
     async criar(body) {
         const dto = planoDTO(body)
         if (!dto.nome || !dto.tipo) {
