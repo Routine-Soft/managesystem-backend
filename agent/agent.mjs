@@ -10,7 +10,7 @@ import zlib from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const VERSAO = '1.5.0'
+const VERSAO = '1.5.1'
 
 const PASTA_DADOS = process.env.MSA_DADOS || '/var/lib/managesystem-agent'
 const ARQUIVO_CONFIG = process.env.MSA_CONFIG || '/etc/managesystem-agent/config.json'
@@ -171,12 +171,16 @@ function lerLinhaDeAcesso(linha) {
         try {
             const j = JSON.parse(linha)
             const r = j.request ?? {}
+            const agente = String(r.headers?.['User-Agent']?.[0] ?? '')
+            if (agente.startsWith('ManageSystem-Monitor/')) return null
             const host = String(r.host ?? '').toLowerCase().replace(/:\d+$/, '') || null
             return { status: Number(j.status), em: j.ts ? new Date(j.ts * 1000) : new Date(), host, ip: r.client_ip ?? r.remote_ip ?? null, resumo: `${r.method ?? ''} ${r.host ?? ''}${r.uri ?? ''}`.trim() }
         } catch {
             return null
         }
     }
+    // A checagem "está no ar?" do próprio ManageSystem não é acesso de gente: fica fora da contagem.
+    if (linha.includes('ManageSystem-Monitor/')) return null
     const status = Number(linha.match(/" (\d{3}) /)?.[1])
     return status ? { status, host: null, ip: linha.split(' ')[0] || null } : null
 }
