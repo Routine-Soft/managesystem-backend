@@ -24,7 +24,7 @@ async function criar() {
             nomeCompleto: nome,
             email: emailNormalizado,
             password: await argon2.hash(senha),
-            nomeEmpresa: 'ManageSystem',
+            nomeEmpresa: 'ServerFall',
             role: 'super_admin',
         })
         console.log(`Super admin criado: ${emailNormalizado}`)

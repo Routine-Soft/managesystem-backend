@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instalador do agente do ManageSystem.
+# Instalador do agente do ServerFall.
 #   Instalar:  curl -fsSL __API_URL__/api/agente/install.sh | sudo bash -s -- --token SEU_TOKEN
 #   Remover:   curl -fsSL __API_URL__/api/agente/install.sh | sudo bash -s -- --remover
 #
@@ -50,17 +50,17 @@ if [ "$REMOVER" -eq 1 ]; then
   rm -f "/etc/systemd/system/$SERVICO.service"
   systemctl daemon-reload
   rm -rf "$PASTA_APP" "$PASTA_DADOS" "$PASTA_CONFIG"
-  verde "Agente do ManageSystem removido."
+  verde "Agente do ServerFall removido."
   exit 0
 fi
 
 if [ -z "$TOKEN" ]; then
-  vermelho "Faltou o token. Copie o comando completo no painel do ManageSystem."
+  vermelho "Faltou o token. Copie o comando completo no painel do ServerFall."
   exit 1
 fi
 
 if ! [[ "$TOKEN" =~ ^msa_[A-Za-z0-9_-]+$ ]]; then
-  vermelho "Token inválido. Copie o comando completo no painel do ManageSystem."
+  vermelho "Token inválido. Copie o comando completo no painel do ServerFall."
   exit 1
 fi
 
@@ -78,7 +78,7 @@ case "$(uname -m)" in
   *) vermelho "Processador não suportado: $(uname -m)"; exit 1 ;;
 esac
 
-echo "→ Instalando o agente do ManageSystem ($ARQ)..."
+echo "→ Instalando o agente do ServerFall ($ARQ)..."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -114,7 +114,7 @@ chmod 700 "$PASTA_DADOS"
 
 cat > "/etc/systemd/system/$SERVICO.service" <<SERVICE
 [Unit]
-Description=Agente do ManageSystem (monitoramento do servidor)
+Description=Agente do ServerFall (monitoramento do servidor)
 After=network-online.target
 Wants=network-online.target
 
@@ -148,7 +148,7 @@ chmod 700 "$PASTA_DADOS/acoes"
 if [ "$ACOES" -eq 1 ]; then
   cat > "$PASTA_APP/acao.sh" <<'ACAO'
 #!/usr/bin/env bash
-# Executa UMA ação pedida pelo painel do ManageSystem. Só existem duas, fixas: atualizar e reiniciar.
+# Executa UMA ação pedida pelo painel do ServerFall. Só existem duas, fixas: atualizar e reiniciar.
 set -uo pipefail
 PASTA=/var/lib/managesystem-agent/acoes
 PEDIDO="$PASTA/pedido"
@@ -183,7 +183,7 @@ ACAO
   chmod 700 "$PASTA_APP/acao.sh"
   cat > /etc/systemd/system/managesystem-acao.service <<UNIDADE
 [Unit]
-Description=ManageSystem: ação pedida pelo painel (instalar atualizações ou reiniciar)
+Description=ServerFall: ação pedida pelo painel (instalar atualizações ou reiniciar)
 
 [Service]
 Type=oneshot
@@ -192,7 +192,7 @@ TimeoutStartSec=1800
 UNIDADE
   cat > /etc/systemd/system/managesystem-acao.path <<UNIDADE
 [Unit]
-Description=ManageSystem: espera pedidos de ação do painel
+Description=ServerFall: espera pedidos de ação do painel
 
 [Path]
 PathExists=$PASTA_DADOS/acoes/pedido

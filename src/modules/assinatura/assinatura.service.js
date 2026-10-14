@@ -111,7 +111,7 @@ function traduzirErroMercadoPago(error) {
 async function corpoDoCartao({ assinatura, plano, emailPagador, inicio = null }) {
     const cotacao = await cotacaoDoDolar()
     const corpo = {
-        reason: `ManageSystem - ${plano.nome}`,
+        reason: `ServerFall - ${plano.nome}`,
         external_reference: assinatura._id.toString(),
         payer_email: process.env.MP_TEST_PAYER_EMAIL || emailPagador,
         auto_recurring: {
@@ -692,7 +692,7 @@ export const AssinaturaService = {
         const expiraEm = new Date(Date.now() + PIX_VALIDADE_MINUTOS * 60 * 1000)
         const corpo = {
             transaction_amount: valor,
-            description: `ManageSystem - ${plano.nome} (${PIX_DIAS_DE_ACESSO} dias)`,
+            description: `ServerFall - ${plano.nome} (${PIX_DIAS_DE_ACESSO} dias)`,
             payment_method_id: 'pix',
             date_of_expiration: expiracaoComFuso(expiraEm),
             external_reference: assinatura._id.toString(),

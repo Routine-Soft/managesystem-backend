@@ -1,4 +1,4 @@
-# ManageSystem — backend
+# ServerFall — backend
 
 API do painel de monitoramento de servidores, domínios e SSL (multi-tenant, pt/en).
 Node.js + Fastify 5 + MongoDB (Mongoose), arquitetura MVC por módulo em `src/modules/`.

@@ -1,7 +1,7 @@
 import Stripe from 'stripe'
 import { MP_API } from '../../config/mercadopago.js'
 
-// Chamadas aos gateways com a chave DO PROGRAMADOR (não a do ManageSystem).
+// Chamadas aos gateways com a chave DO PROGRAMADOR (não a do ServerFall).
 
 export async function mercadoPago(token, metodo, caminho, corpo) {
     const resposta = await fetch(`${MP_API}${caminho}`, {

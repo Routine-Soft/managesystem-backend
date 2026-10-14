@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 
-// Contas de recebimento do programador: o cliente dele paga direto nelas (o dinheiro não passa pelo ManageSystem).
+// Contas de recebimento do programador: o cliente dele paga direto nelas (o dinheiro não passa pelo ServerFall).
 // As chaves ficam cifradas (shared/utils/cripto.js) e nunca voltam para a tela; só o final delas.
 const contaSchema = {
     chaveCifrada: { type: String, default: null },

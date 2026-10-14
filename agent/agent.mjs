@@ -1,4 +1,4 @@
-// Agente do ManageSystem.
+// Agente do ServerFall.
 // Roda no servidor do cliente (serviço systemd "managesystem-agent"), só LÊ informações da máquina e as ENVIA
 // para a API por HTTPS. Não abre porta e não executa comandos vindos de fora.
 // Usa só módulos nativos do Node (sem dependências), com o Node próprio instalado em /opt/managesystem-agent.
@@ -179,7 +179,7 @@ function lerLinhaDeAcesso(linha) {
             return null
         }
     }
-    // A checagem "está no ar?" do próprio ManageSystem não é acesso de gente: fica fora da contagem.
+    // A checagem "está no ar?" do próprio ServerFall não é acesso de gente: fica fora da contagem.
     if (linha.includes('ManageSystem-Monitor/')) return null
     const status = Number(linha.match(/" (\d{3}) /)?.[1])
     return status ? { status, host: null, ip: linha.split(' ')[0] || null } : null
@@ -872,7 +872,7 @@ async function ciclo() {
     }
 }
 
-log(`Agente do ManageSystem ${VERSAO} iniciado. API: ${API}`)
+log(`Agente do ServerFall ${VERSAO} iniciado. API: ${API}`)
 // Primeira leitura de CPU precisa de um intervalo para comparar.
 setTimeout(() => {
     ciclo()
