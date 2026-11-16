@@ -76,7 +76,7 @@ export const MENSAGENS_EN = {
     'Servidor removido com sucesso': 'Server deleted successfully',
     'Sessão expirada. Entre novamente.': 'Session expired. Please sign in again.',
     'Seu período pago por Pix ainda está valendo (até {data}). Assine no cartão depois dessa data.': 'Your Pix paid period is still valid (until {data}). Subscribe by card after that date.',
-    'Seu plano permite até {limite} servidores. Troque de plano para adicionar mais.': 'Your plan allows up to {limite} servers. Upgrade to add more.',
+    'Seu plano permite até {limite} sistemas. Troque de plano para adicionar mais.': 'Your plan allows up to {limite} systems. Upgrade to add more.',
     'Seu plano permite até {limite} sites. Troque de plano para adicionar mais.': 'Your plan allows up to {limite} sites. Upgrade to add more.',
     'Site adicionado com sucesso': 'Site added successfully',
     'Site atualizado com sucesso': 'Site updated successfully',

@@ -41,6 +41,15 @@ function resumoDoServidor(s) {
     }
 }
 
+// O plano limita sistemas, não máquinas. Sistema é o que tem URL verificada ou roda em container.
+// A máquina só com o agente (sem URL) não conta quando já tem sistema dentro; vazia, conta como um
+// (senão daria para monitorar servidores sem limite). Recebe a lista já com o cadastro novo.
+function usoDoPlano(cadastros) {
+    const ehSistema = (c) => Boolean(c.url || c.container?.servidorId)
+    const hosts = new Set(cadastros.filter((c) => c.container?.servidorId).map((c) => String(c.container.servidorId)))
+    return cadastros.filter((c) => ehSistema(c) || !hosts.has(String(c._id))).length
+}
+
 // O servidor onde roda o container precisa ser da mesma conta, ter agente e não ser o próprio servidor.
 async function validarContainer(tenantId, container, proprioId = null) {
     if (!container?.servidorId) return
@@ -93,8 +102,11 @@ export const ServidorService = {
         }
 
         const { servidores: limite } = await AssinaturaService.limitesDoPlano(tenantId)
-        if (limite !== null && (await ServidorModel.countDocuments({ tenantId })) >= limite) {
-            throw new AppError('Seu plano permite até {limite} servidores. Troque de plano para adicionar mais.', 403, 'LIMITE_DO_PLANO', { limite })
+        if (limite !== null) {
+            const atuais = await ServidorModel.find({ tenantId }, 'url container').lean()
+            if (usoDoPlano([...atuais, { _id: 'novo', ...dto }]) > limite) {
+                throw new AppError('Seu plano permite até {limite} sistemas. Troque de plano para adicionar mais.', 403, 'LIMITE_DO_PLANO', { limite })
+            }
         }
 
         await validarContainer(tenantId, dto.container)
